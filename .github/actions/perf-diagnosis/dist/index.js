@@ -13046,7 +13046,7 @@ var require_fetch = __commonJS({
         this.emit("terminated", error);
       }
     };
-    function fetch(input, init = {}) {
+    function fetch2(input, init = {}) {
       webidl.argumentLengthCheck(arguments, 1, { header: "globalThis.fetch" });
       const p = createDeferredPromise();
       let requestObject;
@@ -13976,7 +13976,7 @@ var require_fetch = __commonJS({
       }
     }
     module2.exports = {
-      fetch,
+      fetch: fetch2,
       Fetch,
       fetching,
       finalizeAndReportTiming
@@ -17232,7 +17232,7 @@ var require_undici = __commonJS({
     module2.exports.getGlobalDispatcher = getGlobalDispatcher;
     if (util.nodeMajor > 16 || util.nodeMajor === 16 && util.nodeMinor >= 8) {
       let fetchImpl = null;
-      module2.exports.fetch = async function fetch(resource) {
+      module2.exports.fetch = async function fetch2(resource) {
         if (!fetchImpl) {
           fetchImpl = require_fetch().fetch;
         }
@@ -18140,7 +18140,7 @@ var require_summary = __commonJS({
     exports2.summary = exports2.markdownSummary = exports2.SUMMARY_DOCS_URL = exports2.SUMMARY_ENV_VAR = void 0;
     var os_1 = require("os");
     var fs_1 = require("fs");
-    var { access, appendFile, writeFile } = fs_1.promises;
+    var { access, appendFile, writeFile: writeFile2 } = fs_1.promises;
     exports2.SUMMARY_ENV_VAR = "GITHUB_STEP_SUMMARY";
     exports2.SUMMARY_DOCS_URL = "https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions#adding-a-job-summary";
     var Summary = class {
@@ -18198,7 +18198,7 @@ var require_summary = __commonJS({
         return __awaiter(this, void 0, void 0, function* () {
           const overwrite = !!(options === null || options === void 0 ? void 0 : options.overwrite);
           const filePath = yield this.filePath();
-          const writeFunc = overwrite ? writeFile : appendFile;
+          const writeFunc = overwrite ? writeFile2 : appendFile;
           yield writeFunc(filePath, this._buffer, { encoding: "utf8" });
           return this.emptyBuffer();
         });
@@ -19660,10 +19660,10 @@ var require_core = __commonJS({
       (0, command_1.issueCommand)("set-env", { name }, convertedVal);
     }
     exports2.exportVariable = exportVariable;
-    function setSecret(secret) {
+    function setSecret2(secret) {
       (0, command_1.issueCommand)("add-mask", {}, secret);
     }
-    exports2.setSecret = setSecret;
+    exports2.setSecret = setSecret2;
     function addPath(inputPath) {
       const filePath = process.env["GITHUB_PATH"] || "";
       if (filePath) {
@@ -20708,16 +20708,16 @@ var require_dist_node5 = __commonJS({
       let headers = {};
       let status;
       let url;
-      let { fetch } = globalThis;
+      let { fetch: fetch2 } = globalThis;
       if ((_b = requestOptions.request) == null ? void 0 : _b.fetch) {
-        fetch = requestOptions.request.fetch;
+        fetch2 = requestOptions.request.fetch;
       }
-      if (!fetch) {
+      if (!fetch2) {
         throw new Error(
           "fetch is not set. Please pass a fetch implementation as new Octokit({ request: { fetch }}). Learn more at https://github.com/octokit/octokit.js/#fetch-missing"
         );
       }
-      return fetch(requestOptions.url, {
+      return fetch2(requestOptions.url, {
         method: requestOptions.method,
         body: requestOptions.body,
         redirect: (_c = requestOptions.request) == null ? void 0 : _c.redirect,
@@ -24668,9 +24668,10 @@ var core = __toESM(require_core());
 var github = __toESM(require_github());
 var import_promises = require("node:fs/promises");
 var import_promises2 = require("node:fs/promises");
+var import_node_path = require("node:path");
 var import_node_child_process = require("node:child_process");
 var import_node_os = require("node:os");
-var import_node_path = require("node:path");
+var import_node_path2 = require("node:path");
 
 // ../../src/config/parseConfig.ts
 var MAX_PAGES = 20;
@@ -25346,9 +25347,9 @@ function compareRuns(baseline, current, options = {}) {
       lessons: METRIC_LESSONS[m]
     });
   }
-  const sevRank = (s) => SEVERITY_ORDER.indexOf(s);
+  const sevRank2 = (s) => SEVERITY_ORDER.indexOf(s);
   findings.sort(
-    (a, b) => sevRank(a.severity) - sevRank(b.severity) || LAB_METRIC_ORDER.indexOf(a.metric) - LAB_METRIC_ORDER.indexOf(b.metric)
+    (a, b) => sevRank2(a.severity) - sevRank2(b.severity) || LAB_METRIC_ORDER.indexOf(a.metric) - LAB_METRIC_ORDER.indexOf(b.metric)
   );
   return findings;
 }
@@ -25406,6 +25407,15 @@ function parseUrl(url) {
   if (typeof url !== "string" || url === "") return null;
   try {
     return { url, parsed: new URL(url) };
+  } catch {
+    return null;
+  }
+}
+function pageHostname(runs) {
+  const first = runs[0];
+  if (first === void 0) return null;
+  try {
+    return new URL(first.url).hostname;
   } catch {
     return null;
   }
@@ -25503,23 +25513,36 @@ function watchLcpElement(baseline, current) {
   if (B !== null && B.selector === C.selector) {
     const before = parseUrl(B.element.url);
     const after = parseUrl(C.element.url);
-    if (before !== null && after !== null && before.parsed.hostname !== after.parsed.hostname) {
-      const originChanged = {
-        id: `lcp-image-origin-changed:${C.selector}`,
-        ruleId: "lcp-image-origin-changed",
-        severity: "warning",
-        confidence: "possible",
-        metric: "LCP",
-        title: "The LCP image moved to a new origin",
-        explanation: `The LCP image is now served from ${after.parsed.hostname} instead of ${before.parsed.hostname}, so the browser has to set up a new DNS, TCP and TLS connection before it can start downloading it, which can delay the largest paint.`,
-        evidence: [
-          { kind: "request", label: "Before", url: before.url },
-          { kind: "request", label: "After", url: after.url }
-        ],
-        lessons: ["connections", "lcp-breakdown"]
-      };
-      originChanged.fix = `Add <link rel="preconnect" href="${after.parsed.origin}"> early in the document, or serve the image from the main origin, so the connection is already set up when the image is discovered.`;
-      findings.push(originChanged);
+    if (before !== null && after !== null) {
+      const basePage = pageHostname(baseline);
+      const curPage = pageHostname(current);
+      const hostnamesDiffer = before.parsed.hostname !== after.parsed.hostname;
+      let fire;
+      if (basePage !== null && curPage !== null) {
+        const beforeOwn = before.parsed.hostname === basePage;
+        const afterOwn = after.parsed.hostname === curPage;
+        fire = beforeOwn !== afterOwn || !beforeOwn && !afterOwn && hostnamesDiffer;
+      } else {
+        fire = hostnamesDiffer;
+      }
+      if (fire) {
+        const originChanged = {
+          id: `lcp-image-origin-changed:${C.selector}`,
+          ruleId: "lcp-image-origin-changed",
+          severity: "warning",
+          confidence: "possible",
+          metric: "LCP",
+          title: "The LCP image moved to a new origin",
+          explanation: `The LCP image is now served from ${after.parsed.hostname} instead of ${before.parsed.hostname}, so the browser has to set up a new DNS, TCP and TLS connection before it can start downloading it, which can delay the largest paint.`,
+          evidence: [
+            { kind: "request", label: "Before", url: before.url },
+            { kind: "request", label: "After", url: after.url }
+          ],
+          lessons: ["connections", "lcp-breakdown"]
+        };
+        originChanged.fix = `Add <link rel="preconnect" href="${after.parsed.origin}"> early in the document, or serve the image from the main origin, so the connection is already set up when the image is discovered.`;
+        findings.push(originChanged);
+      }
     }
   }
   findings.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
@@ -25588,11 +25611,11 @@ function checkBudgets(budget, observations) {
       });
     }
   }
-  const sevRank = (s) => SEVERITY_ORDER.indexOf(s);
+  const sevRank2 = (s) => SEVERITY_ORDER.indexOf(s);
   const ffRank = (f) => FORM_FACTOR_ORDER.indexOf(f);
   const metricRank = (m) => FIELD_METRIC_ORDER.indexOf(m);
   results.sort(
-    (a, b) => sevRank(a.finding.severity) - sevRank(b.finding.severity) || (a.pageGroup < b.pageGroup ? -1 : a.pageGroup > b.pageGroup ? 1 : 0) || ffRank(a.formFactor) - ffRank(b.formFactor) || metricRank(a.metric) - metricRank(b.metric)
+    (a, b) => sevRank2(a.finding.severity) - sevRank2(b.finding.severity) || (a.pageGroup < b.pageGroup ? -1 : a.pageGroup > b.pageGroup ? 1 : 0) || ffRank(a.formFactor) - ffRank(b.formFactor) || metricRank(a.metric) - metricRank(b.metric)
   );
   const findings = results.map((r) => r.finding);
   return {
@@ -25602,11 +25625,232 @@ function checkBudgets(budget, observations) {
   };
 }
 
+// ../../src/report/mergeFindings.ts
+var CAUSE_GROUPS = [
+  {
+    members: [
+      "lcp-image-lazy",
+      "trace-lcp-lazy",
+      "lh-audit:lcp-discovery-insight",
+      "lh-audit:prioritize-lcp-image"
+    ],
+    lhNeedsCompanion: true
+  },
+  {
+    members: ["har-slow-server", "lh-audit:server-response-time", "lh-audit:document-latency-insight"],
+    lhNeedsCompanion: false
+  },
+  { members: ["har-redirects", "lh-audit:redirects"], lhNeedsCompanion: false },
+  {
+    members: ["har-no-cache", "lh-audit:cache-insight", "lh-audit:uses-long-cache-ttl"],
+    lhNeedsCompanion: false
+  },
+  { members: ["har-uncompressed", "lh-audit:uses-text-compression"], lhNeedsCompanion: false },
+  {
+    members: ["trace-long-tasks", "lh-audit:bootup-time", "lh-audit:mainthread-work-breakdown"],
+    lhNeedsCompanion: false
+  },
+  { members: ["lh-audit:unsized-images", "lh-audit:cls-culprits-insight"], lhNeedsCompanion: false }
+];
+var METRIC_SYMPTOM_RULES = /* @__PURE__ */ new Set(["budget-exceeded", "lab-regression", "trace-lcp", "trace-cls"]);
+var causeKeyOf = (f) => f.ruleId === "lh-audit" ? f.id : f.ruleId;
+var isLighthouse = (f) => f.ruleId === "lh-audit";
+var sevRank = (s) => SEVERITY_ORDER.indexOf(s);
+var confRank = (f) => f.confidence === "likely" ? 0 : 1;
+function causePrimary(members) {
+  return [...members].sort(
+    (a, b) => sevRank(a.f.severity) - sevRank(b.f.severity) || confRank(a.f) - confRank(b.f) || a.order - b.order || a.input - b.input
+  )[0].f;
+}
+function metricPrimary(members) {
+  const byRule = { "budget-exceeded": 0, "lab-regression": 1 };
+  return [...members].sort(
+    (a, b) => (byRule[a.f.ruleId] ?? 2) - (byRule[b.f.ruleId] ?? 2) || sevRank(a.f.severity) - sevRank(b.f.severity) || confRank(a.f) - confRank(b.f) || a.input - b.input
+  )[0].f;
+}
+function alsoFoundBy(others) {
+  return {
+    kind: "text",
+    label: "Also found by",
+    value: others.map((f) => f.id).join(", ")
+  };
+}
+function mergeFindings(findings) {
+  const causeIndex = /* @__PURE__ */ new Map();
+  for (const group of CAUSE_GROUPS) {
+    group.members.forEach((key, order) => causeIndex.set(key, { group, order }));
+  }
+  const slots = findings.map((finding, input) => {
+    const cause = causeIndex.get(causeKeyOf(finding));
+    if (cause === void 0) {
+      return { type: null, input, finding };
+    }
+    return { type: "cause", cause, input, finding };
+  });
+  for (const slot of slots) {
+    if (slot.type === "cause" && slot.cause.group.lhNeedsCompanion && isLighthouse(slot.finding) && !slots.some((s) => s.type === "cause" && s.cause.group === slot.cause.group && !isLighthouse(s.finding))) {
+      slot.type = null;
+      slot.cause = void 0;
+    }
+  }
+  const metricOf = (f) => METRIC_SYMPTOM_RULES.has(f.ruleId) && f.metric !== null ? f.metric : null;
+  for (const slot of slots) {
+    if (slot.type !== null) continue;
+    const metric = metricOf(slot.finding);
+    if (metric !== null) {
+      slot.type = "metric";
+      slot.metric = metric;
+    }
+  }
+  const out = [];
+  const consumed = /* @__PURE__ */ new Set();
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    if (consumed.has(i)) continue;
+    if (slot.type === null) {
+      out.push(slot.finding);
+      continue;
+    }
+    const sameGroup = slots.filter(
+      (s) => s !== slot && !consumed.has(s.input) && s.type !== null && (slot.type === "cause" ? s.type === "cause" && s.cause.group === slot.cause.group : s.type === "metric" && s.metric === slot.metric)
+    );
+    const groupSlots = [slot, ...sameGroup];
+    if (groupSlots.length === 1) {
+      out.push(slot.finding);
+      continue;
+    }
+    for (const g of groupSlots) consumed.add(g.input);
+    if (slot.type === "cause") {
+      const primary = causePrimary(
+        groupSlots.map((g) => ({ f: g.finding, order: g.cause.order, input: g.input }))
+      );
+      const others = groupSlots.filter((g) => g.finding !== primary).sort((a, b) => a.input - b.input).map((g) => g.finding);
+      out.push({ ...primary, evidence: [...primary.evidence, alsoFoundBy(others)] });
+    } else {
+      const primary = metricPrimary(groupSlots.map((g) => ({ f: g.finding, input: g.input })));
+      const others = groupSlots.filter((g) => g.finding !== primary).sort((a, b) => a.input - b.input).map((g) => g.finding);
+      const labels = new Set(primary.evidence.map((e) => e.label));
+      const appended = [];
+      for (const other of others) {
+        for (const e of other.evidence) {
+          if (e.kind !== "metric" || labels.has(e.label)) continue;
+          labels.add(e.label);
+          appended.push(e);
+        }
+      }
+      out.push({
+        ...primary,
+        evidence: [...primary.evidence, ...appended, alsoFoundBy(others)]
+      });
+    }
+  }
+  return out;
+}
+
 // ../../src/report/rankFindings.ts
+var SYMPTOM_RULES = /* @__PURE__ */ new Set([
+  "lab-regression",
+  "budget-exceeded",
+  "budget-near",
+  "trace-lcp",
+  "trace-cls",
+  "field-regression"
+]);
+function findingKind(f) {
+  if (f.kind === "symptom" || f.kind === "cause") return f.kind;
+  return SYMPTOM_RULES.has(f.ruleId) ? "symptom" : "cause";
+}
+var TIERS = [
+  {
+    tier: 1,
+    rules: [
+      "lcp-image-lazy",
+      "trace-lcp-lazy",
+      "lcp-fetchpriority-lost",
+      "lcp-element-changed",
+      "lh-audit:lcp-discovery-insight",
+      "lh-audit:prioritize-lcp-image"
+    ]
+  },
+  {
+    tier: 2,
+    rules: [
+      "lh-audit:render-blocking-insight",
+      "lh-audit:render-blocking-resources",
+      "har-slow-server",
+      "lh-audit:server-response-time",
+      "lh-audit:document-latency-insight",
+      "har-redirects",
+      "lh-audit:redirects",
+      "third-party-new",
+      // third-party-new:* — any subject
+      "third-party-heavier"
+      // third-party-heavier:* — any subject
+    ]
+  },
+  {
+    tier: 3,
+    rules: [
+      "trace-long-tasks",
+      "trace-slow-interaction",
+      "trace-forced-reflow",
+      "lh-audit:bootup-time",
+      "lh-audit:mainthread-work-breakdown",
+      "lh-audit:unsized-images",
+      "lh-audit:cls-culprits-insight"
+    ]
+  },
+  {
+    tier: 4,
+    rules: [
+      "har-large-transfers",
+      "lh-audit:image-delivery-insight",
+      "har-uncompressed",
+      "lh-audit:uses-text-compression",
+      "lh-audit:unused-css-rules",
+      "lh-audit:unused-javascript",
+      "lh-audit:unminified-css",
+      "lh-audit:unminified-javascript",
+      "har-js-images"
+    ]
+  }
+];
+var UNKNOWN_TIER = 5;
+function causeTier(f) {
+  if (findingKind(f) === "symptom") return 0;
+  const key = f.ruleId === "lh-audit" ? f.id : f.ruleId;
+  for (const entry of TIERS) {
+    if (entry.rules.includes(key)) return entry.tier;
+  }
+  return UNKNOWN_TIER;
+}
+function msOf(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const m = /^(\d+(?:\.\d+)?) ms$/.exec(value);
+  return m === null ? null : Number(m[1]);
+}
+function findingImpactMs(f) {
+  if (typeof f.impactMs === "number" && Number.isFinite(f.impactMs)) return f.impactMs;
+  if (f.ruleId === "lh-audit") {
+    let best = 0;
+    for (const key of ["LCP", "FCP", "TBT"]) {
+      const v = msOf(f.evidence.find((e) => e.label === `Estimated ${key} saving`)?.value);
+      if (v !== null && v > best) best = v;
+    }
+    return best;
+  }
+  if (f.ruleId === "trace-long-tasks") {
+    const m = /(\d+) ms$/.exec(f.title);
+    return m === null ? 0 : Number(m[1]);
+  }
+  return 0;
+}
 function rankFindings(findings, options = {}) {
-  const sevRank = (s) => SEVERITY_ORDER.indexOf(s);
-  const confRank = (c) => c === "likely" ? 0 : 1;
+  const sevRank2 = (s) => SEVERITY_ORDER.indexOf(s);
+  const confRank2 = (c) => c === "likely" ? 0 : 1;
   const metricRank = (m) => m === null ? METRIC_PRIORITY.length : METRIC_PRIORITY.indexOf(m);
+  const kindRank = (f) => findingKind(f) === "cause" ? 0 : 1;
   const byId = /* @__PURE__ */ new Map();
   for (const f of findings) {
     const existing = byId.get(f.id);
@@ -25614,16 +25858,21 @@ function rankFindings(findings, options = {}) {
       byId.set(f.id, f);
       continue;
     }
-    const better = sevRank(f.severity) < sevRank(existing.severity) || sevRank(f.severity) === sevRank(existing.severity) && confRank(f.confidence) < confRank(existing.confidence);
+    const better = sevRank2(f.severity) < sevRank2(existing.severity) || sevRank2(f.severity) === sevRank2(existing.severity) && confRank2(f.confidence) < confRank2(existing.confidence);
     if (better) byId.set(f.id, f);
   }
   const sorted = [...byId.values()].sort(
-    (a, b) => sevRank(a.severity) - sevRank(b.severity) || confRank(a.confidence) - confRank(b.confidence) || metricRank(a.metric) - metricRank(b.metric) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    (a, b) => sevRank2(a.severity) - sevRank2(b.severity) || kindRank(a) - kindRank(b) || causeTier(a) - causeTier(b) || findingImpactMs(b) - findingImpactMs(a) || confRank2(a.confidence) - confRank2(b.confidence) || metricRank(a.metric) - metricRank(b.metric) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   );
   let limit = options.limit ?? 3;
   if (typeof limit !== "number" || !Number.isFinite(limit)) limit = 3;
   limit = Math.max(0, Math.floor(limit));
   return { top: sorted.slice(0, limit), rest: sorted.slice(limit) };
+}
+
+// ../../src/report/organizeFindings.ts
+function organizeFindings(findings, options = {}) {
+  return rankFindings(mergeFindings(findings), options);
 }
 
 // ../../src/report/renderPrComment.ts
@@ -25697,7 +25946,7 @@ function analyzePr(input) {
     findings.push(...budget.findings);
   }
   if (input.extraFindings) findings.push(...input.extraFindings);
-  const ranked = rankFindings(findings, { limit: input.limit });
+  const ranked = organizeFindings(findings, { limit: input.limit });
   const first = current[0] ?? baseline[0];
   const comment = renderPrComment({
     ranked,
@@ -26481,6 +26730,55 @@ var COMMENT_LIMIT = 65e3;
 function fail(failReason) {
   return { ok: false, failReason, comment: null, summary: failReason };
 }
+function isSafeRelPath(path) {
+  if (typeof path !== "string" || path === "") return false;
+  if (path.startsWith("/") || path.includes("\\") || /^[a-zA-Z]:/.test(path)) return false;
+  return path.split("/").every((seg) => seg !== ".." && seg !== "");
+}
+function pageSlug(path) {
+  if (path === "/") return "root";
+  return path.replaceAll("/", "_");
+}
+function apiUrlProblem(url) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return "api-url must be a valid URL.";
+  }
+  if (u.protocol === "https:") return null;
+  if (u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1")) {
+    return null;
+  }
+  return "api-url must be an https URL.";
+}
+var prettyJson = (value) => `${JSON.stringify(value, null, 2)}
+`;
+async function writeReportFile(deps, path, text) {
+  if (deps.writeFile === void 0) return;
+  if (!isSafeRelPath(path)) {
+    deps.log(`Could not write ${path}: the path must stay inside the workspace.`);
+    return;
+  }
+  try {
+    await deps.writeFile(path, text);
+  } catch (e) {
+    deps.log(`Could not write ${path}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+async function saveRuns(deps, reportDir, path, side, pairs) {
+  for (let k = 0; k < pairs.length; k++) {
+    const pair = pairs[k];
+    await writeReportFile(deps, `${reportDir}/${pageSlug(path)}/${side}-${k + 1}.json`, prettyJson(pair.lhr));
+    if (pair.trace !== null && pair.trace !== void 0) {
+      await writeReportFile(
+        deps,
+        `${reportDir}/${pageSlug(path)}/${side}-${k + 1}.trace.json`,
+        prettyJson(pair.trace)
+      );
+    }
+  }
+}
 function urlProblem(name, value) {
   let u;
   try {
@@ -26502,6 +26800,9 @@ function overBudgetSentence(path, f) {
   return `Over budget: ${f.metric} on ${path} (${measured} > ${max}).`;
 }
 async function runAction(deps) {
+  const apiUrl = deps.getInput("api-url");
+  const apiKey = deps.getInput("api-key");
+  if (apiKey !== "") deps.setSecret?.(apiKey);
   const configPath = deps.getInput("config") || "perf.config.json";
   const configText = await deps.readFile(configPath);
   if (configText === null) return fail(`Configuration file not found: ${configPath}.`);
@@ -26534,6 +26835,12 @@ async function runAction(deps) {
     }
     budget = parsedBudget;
   }
+  const reportDirInput = deps.getInput("report-dir");
+  const reportDirRaw = reportDirInput.replace(/\/+$/, "");
+  const reportDir = reportDirRaw !== "" && isSafeRelPath(reportDirRaw) ? reportDirRaw : null;
+  if (reportDirRaw !== "" && reportDir === null) {
+    deps.log(`Could not write report files: report-dir must be a path inside the workspace (got ${reportDirRaw}).`);
+  }
   const outcomes = [];
   for (const page of config.pages) {
     const baseReports = [];
@@ -26547,6 +26854,10 @@ async function runAction(deps) {
     deps.log(`Measured ${page.path}: ${baseReports.length} base runs, ${prReports.length} PR runs.`);
     const basePairs = baseReports.map(normalizeRunResult);
     const prPairs = prReports.map(normalizeRunResult);
+    if (reportDir !== null) {
+      await saveRuns(deps, reportDir, page.path, "base", basePairs);
+      await saveRuns(deps, reportDir, page.path, "pr", prPairs);
+    }
     const baseCollected = collectRuns(basePairs.map((r) => r.lhr));
     const prCollected = collectRuns(prPairs.map((r) => r.lhr));
     if (baseCollected.runs.length === 0 || prCollected.runs.length === 0) {
@@ -26643,6 +26954,10 @@ No performance regressions found.`;
     }
   }
   if (postError !== null) deps.log(`Could not post the PR comment: ${postError}`);
+  if (reportDir !== null && comment !== null) {
+    await writeReportFile(deps, `${reportDir}/comment.md`, `${comment}
+`);
+  }
   let ok = true;
   let failReason = null;
   if (config.failOn === "critical") {
@@ -26667,6 +26982,46 @@ No performance regressions found.`;
     summary2 += `
 The PR comment could not be posted (${postError}). On pull requests from forks the token is read-only.
 `;
+  }
+  if (apiUrl !== "" && apiKey !== "") {
+    const urlProblem2 = apiUrlProblem(apiUrl);
+    if (urlProblem2 !== null) {
+      deps.log(`Could not upload the result: ${urlProblem2}`);
+    } else if (deps.pr === null || deps.pr === void 0) {
+      deps.log("Could not upload the result: the PR number and head commit are not available.");
+    } else if (deps.postJson === void 0) {
+      deps.log("Could not upload the result: no postJson dependency is wired in.");
+    } else {
+      const allFindings = outcomes.filter((o) => o.measured && o.analysis !== null).flatMap((o) => [...o.analysis.ranked.top, ...o.analysis.ranked.rest]);
+      const truncated = allFindings.length > 200;
+      const payload = JSON.stringify({
+        prNumber: deps.pr.number,
+        commitSha: deps.pr.headSha,
+        ok,
+        comment: comment ?? "",
+        findings: allFindings.slice(0, 200).map((f) => ({
+          id: f.id,
+          ruleId: f.ruleId,
+          title: f.title,
+          severity: f.severity
+        }))
+      });
+      if (truncated) deps.log(`Uploaded the first 200 of ${allFindings.length} findings.`);
+      try {
+        const res = await deps.postJson(
+          apiUrl,
+          { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          payload,
+          15e3
+        );
+        if (res.status < 200 || res.status >= 300) {
+          deps.log(`Could not upload the result: ${res.status}`);
+        }
+      } catch (e) {
+        const message = (e instanceof Error ? e.message : String(e)).split(apiKey).join("***");
+        deps.log(`Could not upload the result: ${message}`);
+      }
+    }
   }
   return { ok, failReason, comment, summary: summary2 };
 }
@@ -26728,19 +27083,44 @@ async function main() {
   const octokit = github.getOctokit(core.getInput("github-token"));
   const issueNumber = context2.payload.pull_request.number;
   const { owner, repo } = context2.repo;
-  const workspace = (0, import_node_path.resolve)(process.env.GITHUB_WORKSPACE ?? process.cwd());
+  const workspace = (0, import_node_path2.resolve)(process.env.GITHUB_WORKSPACE ?? process.cwd());
   const readInWorkspace = async (p) => {
-    const abs = (0, import_node_path.resolve)(workspace, p);
-    if (abs !== workspace && !abs.startsWith(workspace + import_node_path.sep)) return null;
+    const abs = (0, import_node_path2.resolve)(workspace, p);
+    if (abs !== workspace && !abs.startsWith(workspace + import_node_path2.sep)) return null;
     try {
       return await (0, import_promises.readFile)(abs, "utf8");
     } catch {
       return null;
     }
   };
+  const writeInWorkspace = async (p, text) => {
+    const abs = (0, import_node_path2.resolve)(workspace, p);
+    if (abs !== workspace && !abs.startsWith(workspace + import_node_path2.sep)) {
+      throw new Error("refusing to write outside the workspace");
+    }
+    await (0, import_promises.mkdir)((0, import_node_path.dirname)(abs), { recursive: true });
+    await (0, import_promises.writeFile)(abs, text, "utf8");
+  };
   const deps = {
     getInput: (name) => core.getInput(name),
     readFile: readInWorkspace,
+    writeFile: writeInWorkspace,
+    // spec 70: mask the API key before anything can log it, then POST the
+    // result with a 15-second timeout when api-url and api-key are both set
+    setSecret: (value) => core.setSecret(value),
+    postJson: async (url, headers, body, timeoutMs) => {
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body,
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+      return { status: res.status };
+    },
+    pr: context2.payload.pull_request !== null && context2.payload.pull_request !== void 0 ? {
+      number: context2.payload.pull_request.number,
+      headSha: String(context2.payload.pull_request.head?.sha ?? "")
+    } : null,
     runLighthouse,
     github: {
       listComments: async () => {
@@ -26769,9 +27149,9 @@ async function main() {
   }
 }
 async function runLighthouse(url, formFactor) {
-  const dir = await (0, import_promises2.mkdtemp)((0, import_node_path.join)((0, import_node_os.tmpdir)(), "perf-diagnosis-"));
-  const outPath = (0, import_node_path.join)(dir, "report.json");
-  const tracePath = (0, import_node_path.join)(dir, "report-0.trace.json");
+  const dir = await (0, import_promises2.mkdtemp)((0, import_node_path2.join)((0, import_node_os.tmpdir)(), "perf-diagnosis-"));
+  const outPath = (0, import_node_path2.join)(dir, "report.json");
+  const tracePath = (0, import_node_path2.join)(dir, "report-0.trace.json");
   const args = [
     "--yes",
     "lighthouse@13.6.0",

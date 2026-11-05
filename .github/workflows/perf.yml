@@ -54,3 +54,14 @@ jobs:
           base-url: https://${{ env.NETLIFY_SITE }}.netlify.app
           pr-url: ${{ env.PREVIEW_URL }}
           config: perf.config.json
+          report-dir: perf-reports
+
+      # Keep every Lighthouse report and trace from this run (they become test data).
+      - name: Upload the measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-reports-pr${{ github.event.pull_request.number }}
+          path: perf-reports
+          retention-days: 7
+          if-no-files-found: ignore
