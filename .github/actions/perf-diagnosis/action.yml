@@ -1,0 +1,27 @@
+name: 'Performance diagnosis'
+description: 'Measure the PR preview against production with Lighthouse and comment with performance findings, budgets and fixes.'
+author: 'perf-diagnosis'
+
+inputs:
+  base-url:
+    description: 'Production URL to measure as the baseline.'
+    required: true
+  pr-url:
+    description: "The PR's preview deploy URL (Netlify or Vercel)."
+    required: true
+  config:
+    description: 'Path to perf.config.json inside the repository.'
+    required: false
+    default: 'perf.config.json'
+  github-token:
+    description: 'Token used to read and post the PR comment.'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  passed:
+    description: 'Whether the performance check passed.'
+
+runs:
+  using: node24
+  main: dist/index.js

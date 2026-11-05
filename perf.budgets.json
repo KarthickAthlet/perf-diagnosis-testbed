@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "generatedFrom": { "windowDays": 0, "latestDate": "" },
+  "rules": [
+    { "pageGroup": "product", "formFactor": "mobile", "metric": "LCP", "max": 4000, "basis": { "current": 3000, "status": "needs-improvement", "days": 0, "samples": 0 } },
+    { "pageGroup": "product", "formFactor": "mobile", "metric": "CLS", "max": 0.1, "basis": { "current": 0, "status": "good", "days": 0, "samples": 0 } }
+  ],
+  "skipped": []
+}

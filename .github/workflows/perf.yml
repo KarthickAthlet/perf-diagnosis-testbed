@@ -1,0 +1,56 @@
+# Runs the performance diagnosis on every pull request: Lighthouse 3× on
+# production and 3× on the PR's Netlify deploy preview, then one PR comment.
+name: Performance check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write # the action posts and updates its diagnosis comment
+
+concurrency:
+  group: perf-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # The Netlify project name: <NETLIFY_SITE>.netlify.app
+  NETLIFY_SITE: REPLACE_WITH_NETLIFY_SITE
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Netlify's preview URL is predictable. The build writes the commit id to
+      # /version.txt, so we wait until the preview serves this PR's head commit
+      # (not GITHUB_SHA, which is GitHub's temporary merge commit).
+      - name: Wait for the Netlify deploy preview
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -u
+          URL="https://deploy-preview-${PR}--${NETLIFY_SITE}.netlify.app"
+          for i in $(seq 1 60); do
+            GOT=$(curl -fsS "$URL/version.txt" 2>/dev/null | tr -d '[:space:]' || true)
+            if [ "$GOT" = "$HEAD_SHA" ]; then
+              echo "Preview is ready: $URL"
+              echo "PREVIEW_URL=$URL" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            echo "Waiting for $URL to serve $HEAD_SHA (got '${GOT:-nothing}')…"
+            sleep 10
+          done
+          echo "The Netlify deploy preview did not appear within 10 minutes." >&2
+          exit 1
+
+      - name: Run the performance diagnosis
+        uses: ./.github/actions/perf-diagnosis
+        with:
+          base-url: https://${{ env.NETLIFY_SITE }}.netlify.app
+          pr-url: ${{ env.PREVIEW_URL }}
+          config: perf.config.json
