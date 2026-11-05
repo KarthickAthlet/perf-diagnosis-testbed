@@ -16,7 +16,7 @@ concurrency:
 
 env:
   # The Netlify project name: <NETLIFY_SITE>.netlify.app
-  NETLIFY_SITE: REPLACE_WITH_NETLIFY_SITE
+  NETLIFY_SITE: perf-testbed
 
 jobs:
   perf:
