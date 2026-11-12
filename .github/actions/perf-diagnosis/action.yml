@@ -17,6 +17,18 @@ inputs:
     description: 'Token used to read and post the PR comment.'
     required: false
     default: ${{ github.token }}
+  report-dir:
+    description: 'Optional folder (inside the workspace) to save every Lighthouse report, trace and the posted comment.'
+    required: false
+    default: ''
+  api-url:
+    description: 'Optional https URL of the pr-ingest endpoint; the result is uploaded when api-url and api-key are both set.'
+    required: false
+    default: ''
+  api-key:
+    description: 'Optional project API key (pd_…); pass it from a repo secret such as secrets.PERF_API_KEY.'
+    required: false
+    default: ''
 
 outputs:
   passed:
