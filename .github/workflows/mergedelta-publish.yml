@@ -1,0 +1,35 @@
+# .github/workflows/mergedelta-publish.yml — MergeDelta publish (spec 0b-4 §4.2, 1b-1 §4 + amendment A1).
+#
+# PRIVILEGED. Runs the default branch's copy of this file (workflow_run always does), never
+# PR code. Validates the scan artifact as untrusted input, verifies identity against GitHub,
+# gets a short-lived MergeDelta credential via OIDC, runs the diff, and posts the comment and
+# check AS THE MERGEDELTA APP through the backend (poster: app). This job makes no GitHub writes.
+name: MergeDelta publish
+
+on:
+  workflow_run:
+    workflows: [MergeDelta scan]   # by name; the action also checks the workflow path (trust.ts)
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read          # download the scan run's artifact
+  pull-requests: read    # read the PR (head, base, changed files); NO write
+  id-token: write        # OIDC -> short-lived MergeDelta ingest token (no stored secret)
+
+concurrency:
+  group: mergedelta-publish-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # The public MergeDelta publish action, pinned by full commit SHA. No checkout at all:
+      # nothing from the repository (and never PR code) runs in this job.
+      - name: MergeDelta publish
+        uses: mergedelta/action/publish@f59e6451c1012e06c5e1fb48531e5f43d2052678 # v1.0.0
+        with:
+          github-token: ${{ github.token }}
+          poster: app
