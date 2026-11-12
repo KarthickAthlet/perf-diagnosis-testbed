@@ -1,0 +1,4 @@
+# Exit test 4.4: the build fails on purpose, so the preview never serves this commit.
+[build]
+  publish = "site"
+  command = "echo exit-test-4.4-build-fails-on-purpose && exit 1"
