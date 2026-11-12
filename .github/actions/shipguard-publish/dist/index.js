@@ -24492,7 +24492,9 @@ function engineOutcome(r) {
   const canFail = comparable && r.mayBlock && !r.baseline.stale && !r.baseline.deploymentUnverified;
   const blocking = r.findings.filter((c) => isBlockingFinding(c, r.blockOn));
   const failedBudgets = r.budgets.filter((b) => b.blocking && !b.passed);
-  if (canFail && (blocking.length > 0 || failedBudgets.length > 0)) {
+  const injections = r.previewInjections ?? [];
+  const likeForLike = injections.length === 0;
+  if (canFail && likeForLike && (blocking.length > 0 || failedBudgets.length > 0)) {
     if (blocking.length) reasons.push(`${blocking.length} new or worsened blocking finding(s)`);
     if (failedBudgets.length) reasons.push(`${failedBudgets.length} blocking budget(s) exceeded`);
     return { engine: r.engine, contribution: "fail", state: "regression", reasons };
@@ -24501,6 +24503,11 @@ function engineOutcome(r) {
   if (comparable && r.baseline.stale) reasons.push("baseline is stale (age)");
   if (comparable && r.baseline.deploymentUnverified) reasons.push("base deployment could not be confirmed as the compared commit");
   if (comparable && !r.mayBlock && (blocking.length || failedBudgets.length)) reasons.push(ADVISORY_REASON);
+  if (injections.length) {
+    for (const name of [...new Set(injections.map((i) => i.name))]) {
+      reasons.push(`preview injects ${name}: comparison not like-for-like`);
+    }
+  }
   if (r.headPages.some((p) => !p.success)) reasons.push("some pages were not scanned");
   if (r.basePages.some((p) => !p.success)) reasons.push("some base pages were not scanned");
   if (r.inconclusive.length) reasons.push(`${r.inconclusive.length} metric(s) inconclusive`);
@@ -24540,8 +24547,18 @@ var ARTIFACT_LIMITS = {
   engines: 7,
   findingsPerEngine: 2e3,
   pagesPerEngine: 200,
-  runsPerSide: 10
+  runsPerSide: 10,
+  /** 0b-3 amendment A2: preview-injection entries per engine part. */
+  previewInjectionsPerEngine: 10
 };
+var PREVIEW_INJECTIONS = [
+  {
+    name: "Netlify Drawer",
+    path: "/.netlify/scripts/cdp",
+    fix: "Netlify \u2192 Project configuration \u2192 Developer settings \u2192 Continuous deployment \u2192 Collaboration tools"
+  }
+];
+var PREVIEW_INJECTION_NAMES = new Set(PREVIEW_INJECTIONS.map((i) => i.name));
 var SHA40 = /^[0-9a-f]{40}$/;
 var SHA256 = /^[0-9a-f]{64}$/;
 var REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
@@ -24550,6 +24567,7 @@ var PAGE_FAILURES = /* @__PURE__ */ new Set(["timeout", "http-error", "navigatio
 var BASE_MODES = /* @__PURE__ */ new Set(["strict-paired", "production-paired", "in-job-merge-base"]);
 var LAB = /* @__PURE__ */ new Set(["LCP", "INP", "CLS", "FCP", "TTFB", "TBT", "SI"]);
 var INVALID_REASONS = /* @__PURE__ */ new Set(["runtime-error", "wrong-url", "http-status", "missing-metric"]);
+var LOCAL_BUILD_FALLBACKS = /* @__PURE__ */ new Set(["no-merge-base", "install-failed", "build-failed", "serve-failed", "timeout"]);
 function isObj2(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -24622,7 +24640,10 @@ function checkEngine(part, at, errs) {
       errs.push({ path: pa, message: "must be an object" });
       return;
     }
-    unknownKeys(p, ["measurements", "inconclusive", "budgets"], pa, errs);
+    if (p.previewInjections !== void 0 && isObj2(part.base) && part.base.mode === "strict-paired") {
+      errs.push({ path: `${pa}.previewInjections`, message: "not allowed in strict-paired mode" });
+    }
+    unknownKeys(p, ["measurements", "inconclusive", "budgets", "previewInjections", "localBuildFallback"], pa, errs);
     if (!Array.isArray(p.measurements)) errs.push({ path: `${pa}.measurements`, message: "must be an array" });
     else {
       for (const side of ["base", "head"]) {
@@ -24634,17 +24655,53 @@ function checkEngine(part, at, errs) {
           errs.push({ path: ma, message: "must be an object" });
           return;
         }
-        unknownKeys(m, ["url", "side", "index", "valid", "invalidReason", "metrics"], ma, errs);
+        unknownKeys(m, ["url", "side", "index", "valid", "invalidReason", "metrics", "lcpBreakdown"], ma, errs);
         if (typeof m.url !== "string" || !/^https?:\/\//.test(m.url) || m.url.length > 2048) errs.push({ path: `${ma}.url`, message: "http(s) URL, \u2264 2048 chars" });
         if (m.side !== "base" && m.side !== "head") errs.push({ path: `${ma}.side`, message: "base | head" });
         if (!isInt(m.index, 0)) errs.push({ path: `${ma}.index`, message: "integer \u2265 0" });
         if (typeof m.valid !== "boolean") errs.push({ path: `${ma}.valid`, message: "boolean" });
         if (m.invalidReason !== void 0 && !INVALID_REASONS.has(m.invalidReason)) errs.push({ path: `${ma}.invalidReason`, message: "unknown reason" });
         if (!isObj2(m.metrics) || !Object.entries(m.metrics).every(([k, x]) => LAB.has(k) && isNum(x) && x >= 0)) errs.push({ path: `${ma}.metrics`, message: "metric \u2192 non-negative number" });
+        if (m.lcpBreakdown !== void 0) {
+          const b = m.lcpBreakdown, ba = `${ma}.lcpBreakdown`;
+          if (!isObj2(b)) errs.push({ path: ba, message: "must be an object" });
+          else {
+            unknownKeys(b, ["selector", "ttfb", "loadDelay", "loadDuration", "renderDelay"], ba, errs);
+            if (typeof b.selector !== "string" || b.selector.length === 0 || b.selector.length > 300) errs.push({ path: `${ba}.selector`, message: "1\u2013300 chars" });
+            for (const k of ["ttfb", "loadDelay", "loadDuration", "renderDelay"]) {
+              if (!isNum(b[k]) || b[k] < 0 || b[k] > 12e4) errs.push({ path: `${ba}.${k}`, message: "finite number in [0, 120000] ms" });
+            }
+          }
+        }
       });
     }
     if (!Array.isArray(p.inconclusive)) errs.push({ path: `${pa}.inconclusive`, message: "must be an array" });
     if (!Array.isArray(p.budgets)) errs.push({ path: `${pa}.budgets`, message: "must be an array" });
+    if (p.localBuildFallback !== void 0) {
+      const f = p.localBuildFallback, fa = `${pa}.localBuildFallback`;
+      if (!isObj2(f)) errs.push({ path: fa, message: "must be an object" });
+      else {
+        unknownKeys(f, ["reason"], fa, errs);
+        if (!LOCAL_BUILD_FALLBACKS.has(f.reason)) errs.push({ path: `${fa}.reason`, message: "no-merge-base | install-failed | build-failed | serve-failed | timeout" });
+      }
+    }
+    if (p.previewInjections !== void 0) {
+      const inj = p.previewInjections, ia = `${pa}.previewInjections`;
+      if (!Array.isArray(inj)) errs.push({ path: ia, message: "must be an array" });
+      else {
+        if (inj.length > ARTIFACT_LIMITS.previewInjectionsPerEngine) errs.push({ path: ia, message: `more than ${ARTIFACT_LIMITS.previewInjectionsPerEngine} entries` });
+        inj.forEach((e, i) => {
+          const ea = `${ia}[${i}]`;
+          if (!isObj2(e)) {
+            errs.push({ path: ea, message: "must be an object" });
+            return;
+          }
+          unknownKeys(e, ["name", "url"], ea, errs);
+          if (typeof e.name !== "string" || !PREVIEW_INJECTION_NAMES.has(e.name)) errs.push({ path: `${ea}.name`, message: "not a known preview injection" });
+          if (typeof e.url !== "string" || !/^https?:\/\//.test(e.url) || e.url.length > 2048) errs.push({ path: `${ea}.url`, message: "http(s) URL, \u2264 2048 chars" });
+        });
+      }
+    }
   }
 }
 function validateArtifact(raw) {
@@ -24924,6 +24981,45 @@ function restLine(c) {
   const f = c.finding;
   return `- ${ICON[f.severity]} ${ENGINE_LABEL[f.engine].split(" ")[0]} ${esc(f.title, 160)}${f.confidence === "possible" ? " _(possible)_" : ""}`;
 }
+function lcpBreakdownTable(r) {
+  const b = r.lcpBreakdown;
+  if (b === void 0) return null;
+  if (b.notComparableReason !== void 0) return null;
+  const rows = b.phases.map((p) => {
+    const change = p.change;
+    const dominant = b.dominantPhase === p.label && change > 0;
+    const cell = `${change >= 0 ? "+" : ""}${formatMs(change)} ms`;
+    return `| ${esc(p.label, 60)} | ${formatMs(p.base)} ms | ${formatMs(p.head)} ms | ${dominant ? `**${cell}**` : cell} |`;
+  });
+  const lines = [
+    "**LCP phases (median, base vs PR)**",
+    "",
+    "<sub>Lighthouse measures these phases on the real, unthrottled page load, so they don't add up to the simulated LCP above. They show which phase changed.</sub>",
+    "",
+    `| LCP phase | Base | PR | Change |`,
+    `|---|---|---|---|`,
+    ...rows
+  ];
+  if (b.dominantPhase !== null) {
+    const d = b.phases.find((p) => p.label === b.dominantPhase);
+    if (d !== void 0 && d.change > 0) lines.push("", `Most of the change is ${esc(b.dominantPhase.toLowerCase(), 60)} (+${formatMs(d.change)} ms).`);
+  }
+  return lines.join("\n");
+}
+function lcpEvidenceFor(c, tables) {
+  const f = c.finding;
+  if (f.metric !== "LCP" || f.pageUrl === null) return "";
+  const t = tables.get(f.pageUrl);
+  if (t === void 0) return "";
+  tables.delete(f.pageUrl);
+  return `
+
+${t}`;
+}
+function formatMs(v) {
+  const rounded = Math.round(v);
+  return rounded.toLocaleString("en-US");
+}
 function baselineCell(r) {
   const b = r.baseline;
   const sha = b.baseSha ? code(b.baseSha.slice(0, 7)) : "";
@@ -24980,6 +25076,11 @@ function renderComment(results, outcome, ctx) {
   if (shown.some((r) => r.status === "baseline-pending")) banners.push("> \u{1F535} ShipGuard setup is not finished (baseline pending). Results are informational.");
   if (shown.some((r) => r.baseline.stale)) banners.push("> \u{1F7E1} Some baselines are older than the freshness limit: shown, but they can't fail the check.");
   if (shown.some((r) => r.baseline.deploymentUnverified)) banners.push("> \u{1F7E1} A base deployment couldn't be confirmed as the compared commit: shown, but it can't fail the check.");
+  const injectionNames = [...new Set(shown.flatMap((r) => (r.previewInjections ?? []).map((i) => i.name)))];
+  for (const name of injectionNames) {
+    const fix = PREVIEW_INJECTIONS.find((i) => i.name === name)?.fix;
+    banners.push(`> \u{1F7E1} The PR preview loads the ${name}, which production doesn't, so timing differences may come from it.${fix === void 0 ? "" : ` Turn it off: ${fix}.`}`);
+  }
   const table = [
     "| Area | Result | Compared against | New | Resolved |",
     "|---|---|---|---|---|",
@@ -24989,6 +25090,11 @@ function renderComment(results, outcome, ctx) {
       return `| ${ENGINE_LABEL[r.engine]} | ${statusCell(r, outcome)} | ${baselineCell(r)} | ${compared ? c.neu : `\u2014 (${c.current} found)`} | ${compared && r.engine !== "performance" ? c.res : "\u2014"} |`;
     })
   ];
+  const fallbackNotes = [];
+  for (const r of shown) {
+    if (r.localBuildFallback === void 0 || r.engine !== "performance") continue;
+    fallbackNotes.push(`> \u{1F7E1} Strict merge-base build failed (${r.localBuildFallback.reason}); compared against production instead.`);
+  }
   const pool = [];
   const informational = shown.filter((r) => r.status !== "compared");
   for (const r of shown) {
@@ -25005,10 +25111,16 @@ function renderComment(results, outcome, ctx) {
   const showPage = pages.length > 1;
   const sections = [];
   const rest = [];
-  let used = [...head, ...banners, ...table].join("\n").length + 3e3;
+  let used = [...head, ...banners, ...table, ...fallbackNotes].join("\n").length + 3e3;
   let hiddenCriticals = 0;
+  const lcpTables = /* @__PURE__ */ new Map();
+  for (const r of shown) {
+    if (r.engine !== "performance" || r.lcpBreakdown === void 0) continue;
+    const t = lcpBreakdownTable(r);
+    if (t !== null) lcpTables.set(r.lcpBreakdown.pageUrl, t);
+  }
   for (const c of criticals) {
-    const s = findingSection(c, ctx.lessonBaseUrl, showPage);
+    const s = findingSection(c, ctx.lessonBaseUrl, showPage) + lcpEvidenceFor(c, lcpTables);
     if (used + s.length + 2 <= COMMENT_BUDGET) {
       sections.push(s);
       used += s.length + 2;
@@ -25016,7 +25128,7 @@ function renderComment(results, outcome, ctx) {
   }
   let warningSections = 0;
   for (const c of warnings) {
-    const s = findingSection(c, ctx.lessonBaseUrl, showPage);
+    const s = findingSection(c, ctx.lessonBaseUrl, showPage) + lcpEvidenceFor(c, lcpTables);
     if (warningSections < WARNING_SECTIONS && used + s.length + 2 <= COMMENT_BUDGET) {
       sections.push(s);
       used += s.length + 2;
@@ -25039,6 +25151,10 @@ function renderComment(results, outcome, ctx) {
   const suppressed = bucket("suppressed");
   if (suppressed.length) tail.push(`<sub>\u{1F507} ${suppressed.length} suppressed finding(s) not shown.</sub>`);
   if (informational.length && anyCompared) tail.push(`<sub>Not compared: ${informational.map((r) => `${ENGINE_LABEL[r.engine]} (${r.status})`).join(", ")}.</sub>`);
+  for (const r of shown) {
+    if (r.engine !== "performance" || r.lcpBreakdown === void 0 || r.lcpBreakdown.notComparableReason === void 0) continue;
+    tail.push(`<sub>LCP phases not shown: ${r.lcpBreakdown.notComparableReason === "selector-differs" ? "LCP element differs between base and PR, so the phases aren't comparable" : "fewer than 3 runs with an LCP breakdown on one side"}.</sub>`);
+  }
   const budgets = shown.flatMap((r) => r.budgets);
   if (budgets.length) {
     const over = budgets.filter((b) => !b.passed);
@@ -25048,7 +25164,7 @@ function renderComment(results, outcome, ctx) {
   const reportLink = ctx.reportUrl ? `${link("Dashboard", ctx.reportUrl)} \xB7 ` : "";
   const pageNote = pages.length === 1 ? `Page ${code(pages[0], 120)} \xB7 ` : "";
   tail.push(`<sub>${pageNote}${reportLink}${link("Full report", ctx.runUrl)} \xB7 ShipGuard \xB7 ${code(ctx.headSha.slice(0, 7))}</sub>`);
-  const body = [head.join("\n"), ...banners, table.join("\n"), ...sections, ...tail].join("\n\n") + "\n";
+  const body = [head.join("\n"), ...banners, table.join("\n"), ...fallbackNotes, ...sections, ...tail].join("\n\n") + "\n";
   return body.length <= COMMENT_LIMIT ? body : body.slice(0, body.lastIndexOf("\n", COMMENT_BUDGET)) + `
 
 _Comment shortened to fit GitHub's limit \u2014 ${link("full report", ctx.runUrl)}._
@@ -25409,31 +25525,82 @@ function performanceResult(part, engineVersion, trustedMergeBase) {
     classification: "new",
     finding: f
   }));
+  const baseMode = part.base?.mode;
+  const strict = baseMode === "strict-paired";
   return {
     engine: "performance",
     engineVersion,
     status: part.status === "scan-failed" ? "scan-failed" : "compared",
     baseline: {
-      mode: part.base?.mode === "production-paired" ? "production-paired" : "in-job-merge-base",
-      validity: part.base?.deploymentVerified === true ? "valid" : "missing",
+      mode: strict ? "strict-paired" : baseMode === "production-paired" ? "production-paired" : "in-job-merge-base",
+      validity: strict ? "valid" : part.base?.deploymentVerified === true ? "valid" : "missing",
       baseSha: part.base?.sha ?? null,
       mergeBaseSha: trustedMergeBase !== null && /^[0-9a-f]{40}$/.test(trustedMergeBase) ? trustedMergeBase : "",
-      label: part.base?.deploymentVerified === true ? `vs production @ ${(part.base?.sha ?? "").slice(0, 7)}` : "production version unverified",
+      label: strict ? `merge-base build ${(part.base?.sha ?? "").slice(0, 7)}` : part.base?.deploymentVerified === true ? `vs production @ ${(part.base?.sha ?? "").slice(0, 7)}` : "production version unverified",
       capturedAt: null,
       stale: false,
       ageDays: null,
       divergenceCommits: null,
-      deploymentUnverified: part.base?.deploymentVerified !== true
+      deploymentUnverified: strict ? false : part.base?.deploymentVerified !== true
     },
     basePages: part.base?.pages ?? [],
     headPages: part.headPages,
     findings,
     inconclusive: [],
     budgets: part.perf?.budgets ?? [],
+    // 0b-3 A2: preview-host scripts only the head loaded — the engine turns not-conclusive
+    // and the comment renders the banner above the table. Findings are still shown.
+    // (The validator already rejects previewInjections on strict-paired artifacts: A2 closure.)
+    ...part.perf?.previewInjections && part.perf.previewInjections.length > 0 ? { previewInjections: part.perf.previewInjections } : {},
+    // batch 1-2 item 1: the strict build fell back to production — one line under the table.
+    ...part.perf?.localBuildFallback !== void 0 ? { localBuildFallback: part.perf.localBuildFallback } : {},
+    // batch 1-2 item 2 (0b-3 A3): the LCP phase table, base vs PR, from the run measurements.
+    ...lcpBreakdownOf(part) !== void 0 ? { lcpBreakdown: lcpBreakdownOf(part) } : {},
     mayBlock: false,
     // 0b-6 §7: performance may not block until calibration is approved
     blockOn: ["critical"]
   };
+}
+function lcpBreakdownOf(part) {
+  const ms = part.perf?.measurements ?? [];
+  const perSide = (side) => ms.filter((m) => m.side === side && m.valid && m.lcpBreakdown !== void 0).map((m) => m.lcpBreakdown);
+  const base = perSide("base");
+  const head = perSide("head");
+  if (base.length === 0 && head.length === 0) return void 0;
+  const MIN_RUNS = 3;
+  if (base.length < MIN_RUNS || head.length < MIN_RUNS) {
+    return { pageUrl: pageUrlOf(part), selector: base[0]?.selector ?? head[0]?.selector ?? "", phases: [], dominantPhase: null, notComparableReason: "too-few-runs" };
+  }
+  const selector = base[0].selector;
+  if (![...base, ...head].every((b) => b.selector === selector)) {
+    return { pageUrl: pageUrlOf(part), selector, phases: [], dominantPhase: null, notComparableReason: "selector-differs" };
+  }
+  const medianOf = (xs) => {
+    const s = [...xs].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+  const phase = (label, pick) => {
+    const b = medianOf(base.map(pick));
+    const h = medianOf(head.map(pick));
+    return { label, base: b, head: h, change: h - b };
+  };
+  const phases = [
+    phase("Time to first byte", (b) => b.ttfb),
+    phase("Resource load delay", (b) => b.loadDelay),
+    phase("Resource load duration", (b) => b.loadDuration),
+    phase("Element render delay", (b) => b.renderDelay)
+  ];
+  const dominant = phases.reduce((a, b) => b.change > a.change ? b : a);
+  return {
+    pageUrl: pageUrlOf(part),
+    selector,
+    phases,
+    dominantPhase: dominant.change > 0 ? dominant.label : null
+  };
+}
+function pageUrlOf(part) {
+  return part.headPages[0]?.url ?? "";
 }
 
 // src/main.ts

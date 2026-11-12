@@ -1,9 +1,19 @@
 {
   "version": 1,
-  "pages": [{ "path": "/", "pageGroup": "product" }],
+  "pages": [
+    {
+      "path": "/",
+      "pageGroup": "product"
+    }
+  ],
   "runs": 3,
   "formFactor": "mobile",
   "budgetFile": "perf.budgets.json",
   "failOn": "budget",
-  "comment": "always"
+  "comment": "always",
+  "localBuild": {
+    "serve": {
+      "staticDir": "site"
+    }
+  }
 }

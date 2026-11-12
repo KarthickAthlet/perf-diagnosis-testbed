@@ -38,8 +38,21 @@ jobs:
       # writes the commit id to /version.txt, so we wait until the preview serves this PR's
       # head commit (not GITHUB_SHA, which is GitHub's temporary merge commit).
       # PR runs only: a push to main (baseline) has no deploy preview to wait for.
-      - name: Wait for the Netlify deploy preview
+      # Batch 1-2: with localBuild configured the scan builds and serves BOTH sides itself —
+      # no preview to wait for. The wait step is skipped (jq reads perf.config.json), and
+      # base-url/pr-url are passed only so the scan can fall back to production-paired.
+      - name: Does the config use localBuild?
         if: github.event_name == 'pull_request'
+        id: localbuild
+        run: |
+          if jq -e '.localBuild != null' perf.config.json >/dev/null 2>&1; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wait for the Netlify deploy preview
+        if: github.event_name == 'pull_request' && steps.localbuild.outputs.enabled != 'true'
         env:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -65,11 +78,14 @@ jobs:
         uses: ./.github/actions/shipguard-scan
         with:
           # No api-key, no api-url, no tokens: this job talks to nothing but the site under test.
+          # base-url/pr-url are the production-paired FALLBACK (used when localBuild fails or is
+          # not configured); in strict mode the action serves both sides on localhost itself.
           base-url: https://${{ env.NETLIFY_SITE }}.netlify.app
           pr-url: ${{ env.PREVIEW_URL }}
           config: perf.config.json
           mode: scan
           output: shipguard-artifact.json
+          build-timeout: 10
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

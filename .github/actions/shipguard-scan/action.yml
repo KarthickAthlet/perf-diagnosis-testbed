@@ -17,6 +17,10 @@ inputs:
     description: 'Token used to read and post the PR comment.'
     required: false
     default: ${{ github.token }}
+  build-timeout:
+    description: 'Minutes allowed for each install and build in strict local-build mode (perf.config.json "localBuild"), 1-20. Default 10.'
+    required: false
+    default: '10'
   mode:
     description: '"scan" (unprivileged: measure like pr mode and write the ScanArtifact for the publish workflow — no comment, no upload, no credentials), "pr" (DEPRECATED, 0b-4: privileged in-job posting; kept until projects move to the two-workflow setup) or "deploy" (record a production deploy to the deploy-ingest endpoint; no Lighthouse, no comment).'
     required: false

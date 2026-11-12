@@ -24676,7 +24676,7 @@ var import_node_path2 = require("node:path");
 // ../../src/config/parseConfig.ts
 var MAX_PAGES = 20;
 var DEFAULT_LESSONS = "https://webperformancelearn.com/lessons";
-var KNOWN_KEYS = ["version", "pages", "runs", "formFactor", "budgetFile", "failOn", "comment", "lessonBaseUrl"];
+var KNOWN_KEYS = ["version", "pages", "runs", "formFactor", "budgetFile", "failOn", "comment", "lessonBaseUrl", "localBuild"];
 function parseConfig(text) {
   let json;
   try {
@@ -24764,6 +24764,72 @@ function parseConfig(text) {
     if (typeof v === "string" && /^https?:\/\//.test(v) && URL.canParse(v)) lessonBaseUrl = v;
     else errors.push({ path: "/lessonBaseUrl", message: "lessonBaseUrl must be an http(s) URL." });
   }
+  let localBuild = null;
+  if ("localBuild" in c && c.localBuild !== null) {
+    const v = c.localBuild;
+    if (typeof v !== "object" || Array.isArray(v)) {
+      errors.push({ path: "/localBuild", message: "localBuild must be an object with install, build and serve." });
+    } else {
+      const lb = v;
+      for (const key of Object.keys(lb)) {
+        if (key !== "install" && key !== "build" && key !== "serve") {
+          errors.push({ path: `/localBuild/${key}`, message: `Unknown key "${key}".` });
+        }
+      }
+      const commandField = (value, at, name) => {
+        if (value === void 0 || value === null) return null;
+        if (typeof value !== "string" || value.length === 0 || value.length > 500) {
+          errors.push({ path: at, message: `${name} must be a non-empty string of at most 500 characters.` });
+          return void 0;
+        }
+        return value;
+      };
+      const install = commandField(lb.install, "/localBuild/install", "install");
+      const build = commandField(lb.build, "/localBuild/build", "build");
+      const serve = lb.serve;
+      let serveParsed = void 0;
+      if (serve === void 0) {
+        errors.push({ path: "/localBuild/serve", message: "serve is required: { staticDir } or { start, readyPath }." });
+      } else if (typeof serve !== "object" || serve === null || Array.isArray(serve)) {
+        errors.push({ path: "/localBuild/serve", message: "serve must be { staticDir } or { start, readyPath }." });
+      } else {
+        const sv = serve;
+        const hasStatic = "staticDir" in sv;
+        const hasStart = "start" in sv;
+        if (hasStatic && hasStart) {
+          errors.push({ path: "/localBuild/serve", message: "serve cannot have both staticDir and start." });
+        } else if (hasStatic) {
+          for (const key of Object.keys(sv)) {
+            if (key !== "staticDir") errors.push({ path: `/localBuild/serve/${key}`, message: `Unknown key "${key}".` });
+          }
+          if (typeof sv.staticDir !== "string" || sv.staticDir.length === 0 || sv.staticDir.length > 200) {
+            errors.push({ path: "/localBuild/serve/staticDir", message: "staticDir must be a non-empty string of at most 200 characters." });
+          } else if (sv.staticDir.startsWith("/") || /^[a-zA-Z]:/.test(sv.staticDir) || sv.staticDir.split(/[\\/]/).includes("..")) {
+            errors.push({ path: "/localBuild/serve/staticDir", message: 'staticDir must be a directory inside the tree (no leading "/" and no "..").' });
+          } else {
+            serveParsed = { staticDir: sv.staticDir };
+          }
+        } else if (hasStart) {
+          for (const key of Object.keys(sv)) {
+            if (key !== "start" && key !== "readyPath") errors.push({ path: `/localBuild/serve/${key}`, message: `Unknown key "${key}".` });
+          }
+          const start = commandField(sv.start, "/localBuild/serve/start", "start");
+          const readyRaw = sv.readyPath;
+          if (typeof readyRaw !== "string" || !readyRaw.startsWith("/") || readyRaw.length > 200) {
+            errors.push({ path: "/localBuild/serve/readyPath", message: 'readyPath must be a path string starting with "/" (at most 200 characters).' });
+          }
+          if (start !== void 0 && start !== null && typeof readyRaw === "string" && readyRaw.startsWith("/") && readyRaw.length <= 200) {
+            serveParsed = { start, readyPath: readyRaw };
+          }
+        } else {
+          errors.push({ path: "/localBuild/serve", message: "serve must have staticDir or start." });
+        }
+      }
+      if (install !== void 0 && build !== void 0 && serveParsed != null) {
+        localBuild = { install: install ?? null, build: build ?? null, serve: serveParsed };
+      }
+    }
+  }
   for (const key of Object.keys(c)) {
     if (!KNOWN_KEYS.includes(key)) errors.push({ path: `/${key}`, message: `Unknown key "${key}".` });
   }
@@ -24777,7 +24843,8 @@ function parseConfig(text) {
       budgetFile,
       failOn: failOn ?? "budget",
       comment: comment ?? "always",
-      lessonBaseUrl: lessonBaseUrl ?? DEFAULT_LESSONS
+      lessonBaseUrl: lessonBaseUrl ?? DEFAULT_LESSONS,
+      localBuild
     },
     errors: []
   };
@@ -25147,12 +25214,37 @@ function findLcpNode(audits) {
   }
   return null;
 }
+function decodeHtmlEntities(s) {
+  return s.replace(/&(amp|lt|gt|quot|apos|nbsp|#x[0-9a-fA-F]+|#\d+);/g, (whole, entity) => {
+    switch (entity) {
+      case "amp":
+        return "&";
+      case "lt":
+        return "<";
+      case "gt":
+        return ">";
+      case "quot":
+        return '"';
+      case "apos":
+        return "'";
+      case "nbsp":
+        return "\xA0";
+      // non-breaking space, as in the DOM
+      default: {
+        const code = entity[1] === "x" || entity[1] === "X" ? Number.parseInt(entity.slice(2), 16) : Number.parseInt(entity.slice(1), 10);
+        return Number.isInteger(code) && code > 0 && code <= 1114111 ? String.fromCodePoint(code) : whole;
+      }
+    }
+  });
+}
 function attr(snippet, name) {
   const m = new RegExp(
     `\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`,
     "i"
   ).exec(snippet);
-  return m ? m[1] ?? m[2] ?? m[3] : void 0;
+  if (m === null) return void 0;
+  const raw = m[1] ?? m[2] ?? m[3];
+  return raw === void 0 ? void 0 : decodeHtmlEntities(raw);
 }
 function runSummaryFromParsed(json, report) {
   const { lhr } = unwrapLhr(json);
@@ -25185,8 +25277,14 @@ function runSummaryFromParsed(json, report) {
     if (type !== "text") {
       const src = attr(snippet, "src");
       if (src) {
+        let absolute = null;
         try {
-          url = new URL(src, report.url).href;
+          const u = new URL(src);
+          if (u.protocol === "https:" || u.protocol === "http:") absolute = u;
+        } catch {
+        }
+        try {
+          url = absolute !== null ? src : new URL(src, report.url).href;
         } catch {
           url = src;
         }
@@ -26893,9 +26991,199 @@ var ARTIFACT_LIMITS = {
   engines: 7,
   findingsPerEngine: 2e3,
   pagesPerEngine: 200,
-  runsPerSide: 10
+  runsPerSide: 10,
+  /** 0b-3 amendment A2: preview-injection entries per engine part. */
+  previewInjectionsPerEngine: 10
 };
+var PREVIEW_INJECTIONS = [
+  {
+    name: "Netlify Drawer",
+    path: "/.netlify/scripts/cdp",
+    fix: "Netlify \u2192 Project configuration \u2192 Developer settings \u2192 Continuous deployment \u2192 Collaboration tools"
+  }
+];
+var PREVIEW_INJECTION_NAMES = new Set(PREVIEW_INJECTIONS.map((i) => i.name));
 var ENGINE_SET = new Set(ENGINES);
+
+// src/localBuild.ts
+var DEFAULT_BUILD_TIMEOUT_MINUTES = 10;
+var MIN_BUILD_TIMEOUT_MINUTES = 1;
+var MAX_BUILD_TIMEOUT_MINUTES = 20;
+var READY_TIMEOUT_MS = 6e4;
+var runIn = (side, sha) => ({
+  SHIPGUARD_SIDE: side,
+  SHIPGUARD_SHA: sha
+});
+async function prepareSide(deps, cfg, side, tree, sha, timeoutMinutes) {
+  const timeoutMs = timeoutMinutes * 6e4;
+  const env = runIn(side, sha);
+  for (const [name, command] of [["install", cfg.install], ["build", cfg.build]]) {
+    if (command === null) continue;
+    deps.log(`local-build ${side}: ${name} (${command}) in ${tree}`);
+    const res = await deps.runCommand({ command, cwd: tree, env, timeoutMs });
+    if (res === null) {
+      return { ok: false, fallback: name === "install" ? "install-failed" : "build-failed", why: `${side} ${name} command could not start: ${command}` };
+    }
+    if (res.code !== 0) {
+      for (const line of res.lastLines) deps.log(line);
+      return { ok: false, fallback: name === "install" ? "install-failed" : "build-failed", why: `${side} ${name} exited ${res.code} (last ${res.lastLines.length} lines above)` };
+    }
+  }
+  const port = await deps.freePort();
+  if ("staticDir" in cfg.serve) {
+    const root = `${tree}/${cfg.serve.staticDir}`;
+    let server;
+    try {
+      server = await deps.startStaticServer({ root });
+    } catch (e) {
+      return { ok: false, fallback: "serve-failed", why: `${side} static server could not start: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    if (server.port === port) deps.log(`local-build ${side}: serving ${root} on 127.0.0.1:${server.port}`);
+    return {
+      ok: true,
+      served: {
+        origin: `http://127.0.0.1:${server.port}`,
+        sha,
+        stop: async () => server.stop()
+      }
+    };
+  }
+  deps.log(`local-build ${side}: starting ${cfg.serve.start} on port ${port}`);
+  const started = await deps.startCommand({
+    command: cfg.serve.start,
+    cwd: tree,
+    env: { ...env, PORT: String(port) },
+    port,
+    readyPath: cfg.serve.readyPath,
+    timeoutMs: READY_TIMEOUT_MS
+  });
+  if (started === null) {
+    return { ok: false, fallback: "serve-failed", why: `${side} start command never became ready on ${cfg.serve.readyPath} within 60s: ${cfg.serve.start}` };
+  }
+  return {
+    ok: true,
+    served: {
+      origin: `http://127.0.0.1:${port}`,
+      sha,
+      stop: async () => started.stop()
+    }
+  };
+}
+async function prepareStrictSides(deps, cfg, opts) {
+  if (opts.mergeBaseSha === null || !/^[0-9a-f]{40}$/.test(opts.mergeBaseSha)) {
+    return { ok: false, fallback: "no-merge-base", why: "the in-job git merge-base failed or did not return a commit" };
+  }
+  if (!await deps.addWorktree(opts.worktreeDir, opts.mergeBaseSha)) {
+    return { ok: false, fallback: "no-merge-base", why: `git worktree add failed for ${opts.mergeBaseSha.slice(0, 7)}` };
+  }
+  const baseSha = await deps.revParseHead(opts.worktreeDir);
+  if (baseSha === null || !/^[0-9a-f]{40}$/.test(baseSha)) {
+    await deps.removeWorktree(opts.worktreeDir).catch(() => {
+    });
+    return { ok: false, fallback: "no-merge-base", why: "git rev-parse HEAD failed in the merge-base worktree" };
+  }
+  const headTree = opts.headTree;
+  const headPrepared = await prepareSide(deps, cfg, "head", headTree, opts.headSha, opts.timeoutMinutes);
+  if (!headPrepared.ok) {
+    await deps.removeWorktree(opts.worktreeDir).catch(() => {
+    });
+    return headPrepared;
+  }
+  const basePrepared = await prepareSide(deps, cfg, "base", opts.worktreeDir, baseSha, opts.timeoutMinutes);
+  if (!basePrepared.ok) {
+    await headPrepared.served.stop().catch(() => {
+    });
+    await deps.removeWorktree(opts.worktreeDir).catch(() => {
+    });
+    return basePrepared;
+  }
+  return { ok: true, base: basePrepared.served, head: headPrepared.served, worktreeDir: opts.worktreeDir };
+}
+async function teardownStrictSides(deps, sides) {
+  const jobs = [];
+  if (sides.head) jobs.push(sides.head.stop().catch(() => {
+  }));
+  if (sides.base) jobs.push(sides.base.stop().catch(() => {
+  }));
+  if (sides.worktreeDir) jobs.push(deps.removeWorktree(sides.worktreeDir).catch(() => {
+  }));
+  await Promise.all(jobs);
+}
+async function startStaticServer(opts) {
+  const http = await import("node:http");
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const root = path.resolve(opts.root);
+  const server = http.createServer((req, res) => {
+    const send = (status, body, type) => {
+      res.writeHead(status, { "Content-Type": type, "Content-Length": typeof body === "string" ? Buffer.byteLength(body) : body.length });
+      res.end(req.method === "HEAD" ? void 0 : body);
+    };
+    let pathname;
+    try {
+      pathname = decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname);
+    } catch {
+      send(400, "bad request", "text/plain; charset=utf-8");
+      return;
+    }
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      send(405, "method not allowed", "text/plain; charset=utf-8");
+      return;
+    }
+    const stripped = pathname.replace(/^\/+/, "");
+    const rel = stripped === "" || stripped.endsWith("/") ? `${stripped}index.html` : stripped;
+    if (rel.split("/").includes("..") || pathname.includes("\\") || pathname.includes("\0")) {
+      send(404, "not found", "text/plain; charset=utf-8");
+      return;
+    }
+    const file = path.resolve(root, rel);
+    if (!file.startsWith(root + path.sep)) {
+      send(404, "not found", "text/plain; charset=utf-8");
+      return;
+    }
+    fs.readFile(file).then(
+      (body) => send(200, body, contentTypeOf(file)),
+      () => send(404, "not found", "text/plain; charset=utf-8")
+    );
+  });
+  return new Promise((resolve, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      resolve({ port, stop: () => server.close() });
+    });
+  });
+}
+function contentTypeOf(name) {
+  const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
+  const map = {
+    html: "text/html; charset=utf-8",
+    htm: "text/html; charset=utf-8",
+    js: "application/javascript",
+    mjs: "application/javascript",
+    css: "text/css; charset=utf-8",
+    json: "application/json",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    svg: "image/svg+xml",
+    webp: "image/webp",
+    avif: "image/avif",
+    ico: "image/x-icon",
+    woff: "font/woff",
+    woff2: "font/woff2",
+    ttf: "font/ttf",
+    otf: "font/otf",
+    txt: "text/plain; charset=utf-8",
+    map: "application/json",
+    webmanifest: "application/manifest+json",
+    xml: "application/xml",
+    pdf: "application/pdf",
+    wasm: "application/wasm"
+  };
+  return map[ext] ?? "application/octet-stream";
+}
 
 // src/scanMode.ts
 var DEFAULT_OUTPUT = "shipguard-artifact.json";
@@ -26923,7 +27211,7 @@ function lighthouseVersionOf(report) {
   const lhr = "lhr" in r && typeof r.lhr === "object" ? r.lhr : r;
   return typeof lhr.lighthouseVersion === "string" ? lhr.lighthouseVersion : "";
 }
-async function runScanMode(deps, ctx) {
+async function runScanMode(deps, ctx, local = null, workspace = null, buildTimeoutInput = "", gitGrepPaths = null) {
   const fail2 = (reason) => ({ ok: false, failReason: reason, artifact: null, summary: `## ShipGuard scan
 
 ${reason}
@@ -26948,13 +27236,13 @@ ${reason}
   }
   const isBaseline = ctx.event !== "pull_request";
   if (isBaseline) {
-    const artifact2 = buildBaselineArtifact(ctx, configHash);
-    const text2 = pretty(artifact2);
-    const output2 = deps.getInput("output") || DEFAULT_OUTPUT;
+    const artifact = buildBaselineArtifact(ctx, configHash);
+    const text = pretty(artifact);
+    const output = deps.getInput("output") || DEFAULT_OUTPUT;
     try {
-      await deps.writeFile(output2, text2);
+      await deps.writeFile(output, text);
     } catch (e) {
-      const reason = `Could not write the scan artifact ${output2}: ${e instanceof Error ? e.message : String(e)}`;
+      const reason = `Could not write the scan artifact ${output}: ${e instanceof Error ? e.message : String(e)}`;
       return { ok: false, failReason: reason, artifact: null, summary: `## ShipGuard scan
 
 ${reason}
@@ -26963,25 +27251,150 @@ ${reason}
     return {
       ok: true,
       failReason: null,
-      artifact: text2,
+      artifact: text,
       summary: `## ShipGuard scan
 
-Baseline scan of ${ctx.headSha.slice(0, 7)} recorded: ${artifact2.engines.length} engine part(s), no PR to compare (performance needs a PR preview).
+Baseline scan of ${ctx.headSha.slice(0, 7)} recorded: ${artifact.engines.length} engine part(s), no PR to compare (performance needs a PR preview).
 `
     };
   }
+  const strictInput = local !== null && workspace !== null && config.localBuild !== null;
+  let strictBaseOrigin = null;
+  let strictHeadOrigin = null;
+  let strictBaseSha = null;
+  let strictDeploymentVerified = false;
+  let localBuildFallback = null;
+  if (config.localBuild !== null) {
+    if (!strictInput) {
+      localBuildFallback = { reason: "serve-failed", why: "localBuild configured but the scan action wired no local-build dependencies" };
+      deps.log(`local-build unavailable: ${localBuildFallback.why}; falling back.`);
+    } else {
+      const timeoutMinutes = parseBuildTimeout(buildTimeoutInput, deps.log);
+      deps.log(`local-build: strict merge-base mode (merge-base ${ctx.mergeBaseSha ?? "unresolved"}).`);
+      const prepared = await prepareStrictSides(local, config.localBuild, {
+        headTree: workspace,
+        headSha: ctx.headSha,
+        mergeBaseSha: ctx.mergeBaseSha,
+        worktreeDir: `${workspace}/.shipguard-merge-base`,
+        timeoutMinutes
+      });
+      if (prepared.ok) {
+        strictBaseOrigin = prepared.base.origin;
+        strictHeadOrigin = prepared.head.origin;
+        strictBaseSha = prepared.base.sha;
+        strictDeploymentVerified = true;
+        deps.log(`local-build: base ${prepared.base.sha.slice(0, 7)} on ${prepared.base.origin}, head on ${prepared.head.origin}.`);
+        try {
+          return await measureAndWrite(deps, ctx, config, configHash, budget, {
+            mode: "strict-paired",
+            baseUrl: strictBaseOrigin,
+            prUrl: strictHeadOrigin,
+            baseSha: strictBaseSha,
+            deploymentVerified: strictDeploymentVerified,
+            localBuildFallback: null
+          });
+        } finally {
+          await teardownStrictSides(local, { base: prepared.base, head: prepared.head, worktreeDir: prepared.worktreeDir });
+        }
+      }
+      localBuildFallback = { reason: prepared.fallback, why: prepared.why };
+      deps.log(`local-build failed (${prepared.fallback}): ${prepared.why}; falling back.`);
+      await teardownStrictSides(local, { worktreeDir: null });
+    }
+  }
   const baseUrl = deps.getInput("base-url");
   const prUrl = deps.getInput("pr-url");
+  const hasProductionInputs = baseUrl !== "" && prUrl !== "";
+  if (localBuildFallback !== null && !hasProductionInputs) {
+    const artifact = {
+      schemaVersion: ARTIFACT_SCHEMA_VERSION,
+      findingSchemaVersion: FINDING_SCHEMA_VERSION,
+      fingerprintVersion: FINGERPRINT_VERSION,
+      tool: { name: "shipguard", version: ctx.engineVersion },
+      run: {
+        repository: ctx.repository,
+        event: ctx.event,
+        prNumber: ctx.prNumber,
+        headSha: ctx.headSha,
+        mergeBaseSha: ctx.mergeBaseSha,
+        baseRef: null,
+        runId: ctx.runId,
+        runAttempt: ctx.runAttempt
+      },
+      configHash,
+      engines: [
+        {
+          engine: "performance",
+          engineVersion: ctx.engineVersion,
+          status: "scan-failed",
+          headPages: [],
+          headFindings: [],
+          perf: {
+            measurements: [],
+            inconclusive: [],
+            budgets: [],
+            localBuildFallback: { reason: localBuildFallback.reason }
+          }
+        }
+      ]
+    };
+    const text = pretty(artifact);
+    const output = deps.getInput("output") || DEFAULT_OUTPUT;
+    try {
+      await deps.writeFile(output, text);
+    } catch (e) {
+      const reason = `Could not write the scan artifact ${output}: ${e instanceof Error ? e.message : String(e)}`;
+      return { ok: false, failReason: reason, artifact: null, summary: `## ShipGuard scan
+
+${reason}
+` };
+    }
+    return {
+      ok: true,
+      failReason: null,
+      artifact: text,
+      summary: `## ShipGuard scan
+
+Strict merge-base build failed (${localBuildFallback.reason}): ${localBuildFallback.why}. No production inputs to fall back to; performance recorded scan-failed.
+`
+    };
+  }
   const baseProblem = urlProblem("base-url", baseUrl);
   if (baseProblem !== null) return fail2(baseProblem);
   const prProblem = urlProblem("pr-url", prUrl);
   if (prProblem !== null) return fail2(prProblem);
+  return measureAndWrite(deps, ctx, config, configHash, budget, {
+    mode: "production-paired",
+    baseUrl,
+    prUrl,
+    baseSha: null,
+    // resolved from the version marker below
+    deploymentVerified: false,
+    localBuildFallback,
+    gitGrep: gitGrepPaths
+  });
+}
+function parseBuildTimeout(input, log) {
+  if (input.trim() === "") return DEFAULT_BUILD_TIMEOUT_MINUTES;
+  const v = Number(input);
+  if (Number.isInteger(v) && v >= MIN_BUILD_TIMEOUT_MINUTES && v <= MAX_BUILD_TIMEOUT_MINUTES) return v;
+  log(`build-timeout "${input}" is not 1\u201320 minutes; using ${DEFAULT_BUILD_TIMEOUT_MINUTES}.`);
+  return DEFAULT_BUILD_TIMEOUT_MINUTES;
+}
+async function measureAndWrite(deps, ctx, config, configHash, budget, strict) {
+  const fail2 = (reason) => ({ ok: false, failReason: reason, artifact: null, summary: `## ShipGuard scan
+
+${reason}
+` });
+  const { baseUrl, prUrl } = strict;
   const measurements = [];
   const headPages = [];
   const basePages = [];
   const headFindings = [];
   const budgets = [];
   const analyses = [];
+  const headInjections = /* @__PURE__ */ new Map();
+  const baseInjectionNames = /* @__PURE__ */ new Set();
   for (const page of config.pages) {
     const basePageUrl = joinUrl(baseUrl, page.path);
     const prPageUrl = joinUrl(prUrl, page.path);
@@ -26996,15 +27409,22 @@ Baseline scan of ${ctx.headSha.slice(0, 7)} recorded: ${artifact2.engines.length
       if (headReport !== void 0) headRuns.push({ lhr: unwrapLhr2(headReport), lighthouseVersion: lighthouseVersionOf(headReport) });
     }
     deps.log(`Measured ${page.path}: warm-up discarded; ${baseRuns.length} base runs, ${headRuns.length} head runs.`);
+    for (const r of headRuns) {
+      for (const inj of scriptInjectionsOf(r.lhr)) headInjections.set(`${inj.name}
+${inj.url}`, inj);
+    }
+    for (const r of baseRuns) {
+      for (const inj of scriptInjectionsOf(r.lhr)) baseInjectionNames.add(inj.name);
+    }
     const baseCollected = collectRuns(baseRuns.map((r) => r.lhr), basePageUrl);
     const headCollected = collectRuns(headRuns.map((r) => r.lhr), prPageUrl);
     baseRuns.forEach((r, i) => {
       const v = runValues(r.lhr, basePageUrl);
-      measurements.push({ url: basePageUrl, side: "base", index: i, valid: v.valid, invalidReason: v.invalidReason, metrics: v.metrics });
+      measurements.push({ url: basePageUrl, side: "base", index: i, valid: v.valid, invalidReason: v.invalidReason, metrics: v.metrics, ...lcpBreakdownOfRun(r.lhr) });
     });
     headRuns.forEach((r, i) => {
       const v = runValues(r.lhr, prPageUrl);
-      measurements.push({ url: prPageUrl, side: "head", index: i, valid: v.valid, invalidReason: v.invalidReason, metrics: v.metrics });
+      measurements.push({ url: prPageUrl, side: "head", index: i, valid: v.valid, invalidReason: v.invalidReason, metrics: v.metrics, ...lcpBreakdownOfRun(r.lhr) });
     });
     const baseMajor = baseRuns.length > 0 ? majorOf(baseRuns[0].lighthouseVersion) : null;
     const headMajor = headRuns.length > 0 ? majorOf(headRuns[0].lighthouseVersion) : null;
@@ -27041,6 +27461,21 @@ Baseline scan of ${ctx.headSha.slice(0, 7)} recorded: ${artifact2.engines.length
       headFindings.push(...adaptPerfFindings(a.analysis.findings, joinUrl(prUrl, a.path)));
     }
   }
+  let previewInjections = [];
+  if (strict.mode === "production-paired") {
+    const candidates = [...headInjections.values()].filter((inj) => !baseInjectionNames.has(inj.name)).slice(0, ARTIFACT_LIMITS.previewInjectionsPerEngine);
+    const grep = strict.gitGrep ?? null;
+    const ownPaths = grep !== null ? await grep("/.netlify/scripts/cdp") : null;
+    previewInjections = candidates.filter((inj) => {
+      if (inj.name === "Netlify Drawer") {
+        if (ownPaths !== null && ownPaths.length > 0) {
+          deps.log(`preview injection ${inj.name} not reported: ${inj.url} appears in the PR's own files (${ownPaths.slice(0, 3).join(", ")}).`);
+          return false;
+        }
+      }
+      return true;
+    });
+  }
   if (budget !== null) {
     for (const a of analyses) {
       if (a.analysis === null) continue;
@@ -27059,7 +27494,8 @@ Baseline scan of ${ctx.headSha.slice(0, 7)} recorded: ${artifact2.engines.length
       }
     }
   }
-  const deploymentVerified = ctx.baseVersionMarker !== null && /^[0-9a-f]{40}$/.test(ctx.baseVersionMarker);
+  const strictMode = strict.mode === "strict-paired";
+  const deploymentVerified = strictMode ? strict.deploymentVerified : ctx.baseVersionMarker !== null && /^[0-9a-f]{40}$/.test(ctx.baseVersionMarker);
   const artifact = {
     schemaVersion: ARTIFACT_SCHEMA_VERSION,
     findingSchemaVersion: FINDING_SCHEMA_VERSION,
@@ -27084,15 +27520,22 @@ Baseline scan of ${ctx.headSha.slice(0, 7)} recorded: ${artifact2.engines.length
         headPages: headPages.map((p) => ({ ...p, ...p.success ? {} : { failureReason: "navigation" } })),
         headFindings,
         base: {
-          mode: "production-paired",
-          // only a real commit SHA; anything else (a 404 page, an empty body) is "unknown"
-          sha: deploymentVerified ? ctx.baseVersionMarker : null,
+          mode: strictMode ? "strict-paired" : "production-paired",
+          // strict: the merge-base SHA read by git rev-parse in the worktree (never the claim);
+          // production: only a real commit SHA, anything else (a 404 page, an empty body) is "unknown"
+          sha: strictMode ? strict.baseSha : deploymentVerified ? ctx.baseVersionMarker : null,
           deploymentVerified,
           pages: basePages.map((p) => ({ ...p, ...p.success ? {} : { failureReason: "navigation" } })),
           findings: []
           // the base side's findings live in the stored snapshot, not here
         },
-        perf: { measurements, inconclusive: [], budgets }
+        perf: {
+          measurements,
+          inconclusive: [],
+          budgets,
+          ...previewInjections.length > 0 ? { previewInjections } : {},
+          ...strict.localBuildFallback !== null ? { localBuildFallback: { reason: strict.localBuildFallback.reason } } : {}
+        }
       }
     ]
   };
@@ -27123,12 +27566,62 @@ function unwrapLhr2(report) {
   if (r !== null && typeof r === "object" && "lhr" in r && typeof r.lhr === "object") return r.lhr;
   return report;
 }
+function scriptInjectionsOf(report) {
+  const r = report;
+  if (r === null || typeof r !== "object") return [];
+  const audits = r.audits;
+  const items = audits?.["network-requests"]?.details?.items;
+  if (!Array.isArray(items)) return [];
+  const out = [];
+  for (const it of items) {
+    if (typeof it !== "object" || it === null) continue;
+    const item = it;
+    if (item.resourceType !== "Script") continue;
+    const url = typeof item.url === "string" ? item.url : "";
+    if (url === "") continue;
+    let path;
+    try {
+      path = new URL(url).pathname;
+    } catch {
+      continue;
+    }
+    const known = PREVIEW_INJECTIONS.find((inj) => inj.path === path);
+    if (known !== void 0) out.push({ name: known.name, url });
+  }
+  return out;
+}
 async function attemptRun(deps, url, formFactor) {
   try {
     return await deps.runLighthouse(url, formFactor);
   } catch {
     return void 0;
   }
+}
+function lcpBreakdownOfRun(report) {
+  const r = report;
+  if (r === null || typeof r !== "object") return {};
+  const items = r.audits?.["lcp-breakdown-insight"]?.details?.items;
+  if (!Array.isArray(items)) return {};
+  const table = items.find((it) => typeof it === "object" && it !== null && Array.isArray(it.items));
+  const node = items.find((it) => typeof it === "object" && it !== null && typeof it.selector === "string");
+  if (table === void 0 || node === void 0) return {};
+  const subparts = /* @__PURE__ */ new Map();
+  for (const sp of table.items) {
+    if (typeof sp !== "object" || sp === null) continue;
+    const s = sp;
+    if (typeof s.subpart === "string" && typeof s.duration === "number" && Number.isFinite(s.duration) && s.duration >= 0) {
+      subparts.set(s.subpart, s.duration);
+    }
+  }
+  const selector = node.selector;
+  const ttfb = subparts.get("timeToFirstByte");
+  const loadDelay = subparts.get("resourceLoadDelay");
+  const loadDuration = subparts.get("resourceLoadDuration");
+  const renderDelay = subparts.get("elementRenderDelay");
+  if (ttfb === void 0 || loadDelay === void 0 || loadDuration === void 0 || renderDelay === void 0) return {};
+  if ([ttfb, loadDelay, loadDuration, renderDelay].some((v) => v > 12e4)) return {};
+  if (selector.length === 0 || selector.length > 300) return {};
+  return { lcpBreakdown: { selector, ttfb, loadDelay, loadDuration, renderDelay } };
 }
 var pretty = (value) => `${JSON.stringify(value, null, 2)}
 `;
@@ -27278,7 +27771,14 @@ async function runAction(deps) {
         runAttempt: 1,
         baseVersionMarker: null,
         engineVersion: "0"
-      }
+      },
+      // strict merge-base mode (batch 1-2): the local-build side effects, when wired. A PR
+      // event without them cannot build locally and falls back to production-paired.
+      deps.localBuildDeps ?? null,
+      deps.workspace ?? null,
+      deps.getInput("build-timeout"),
+      // 0b-3 A2 closure: `git grep -F` in the job's checkout (main.ts wires the real one).
+      deps.gitGrepPaths ?? null
     );
     return { ok: r.ok, failReason: r.failReason, comment: null, summary: r.summary };
   }
@@ -27760,6 +28260,29 @@ async function main() {
       return;
     }
     deps.scanContext = built.context;
+    deps.workspace = workspace;
+    deps.gitGrepPaths = (needle) => gitGrepPathsReal(needle, workspace);
+    deps.localBuildDeps = {
+      runCommand: runShellCommand,
+      addWorktree: async (dir, sha) => {
+        const out = await git(workspace, ["worktree", "add", "--detach", dir, sha]);
+        return out !== null;
+      },
+      revParseHead: async (dir) => {
+        const sha = await git(dir, ["rev-parse", "HEAD"]);
+        return sha !== null ? sha.trim() : null;
+      },
+      removeWorktree: async (dir) => {
+        await git(workspace, ["worktree", "remove", "--force", dir]).catch(() => {
+        });
+        await (0, import_promises2.rm)(dir, { recursive: true, force: true }).catch(() => {
+        });
+      },
+      startStaticServer,
+      startCommand: startCommandReal,
+      freePort,
+      log: (msg) => core.info(msg)
+    };
   }
   const result = await runAction(deps);
   core.setOutput("passed", String(result.ok));
@@ -27839,6 +28362,118 @@ ${errTail.trim()}`));
   }
 }
 main().catch((e) => core.setFailed(e instanceof Error ? e.message : String(e)));
+function runShellCommand(opts) {
+  return new Promise((resolve) => {
+    const child = (0, import_node_child_process.spawn)("bash", ["-lc", opts.command], {
+      cwd: opts.cwd,
+      env: { ...process.env, ...opts.env },
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true
+      // own process group: kill(-pid) reaches everything the command spawned
+    });
+    let out = "";
+    child.stdout?.on("data", (c) => {
+      out += c.toString("utf8");
+    });
+    child.stderr?.on("data", (c) => {
+      out += c.toString("utf8");
+    });
+    const timer = setTimeout(() => {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        child.kill("SIGKILL");
+      }
+      resolve(null);
+    }, opts.timeoutMs);
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const lines = out.split("\n").map((l) => l.trimEnd()).filter((l) => l !== "");
+      resolve({ code: code ?? -1, lastLines: lines.slice(-100) });
+    });
+  });
+}
+function git(cwd, args) {
+  return new Promise((resolve) => {
+    const child = (0, import_node_child_process.spawn)("git", args, { cwd, stdio: ["ignore", "pipe", "ignore"] });
+    let out = "";
+    child.stdout?.on("data", (c) => {
+      out += c.toString("utf8");
+    });
+    child.on("error", () => resolve(null));
+    child.on("close", (code) => resolve(code === 0 ? out : null));
+  });
+}
+async function freePort() {
+  const net = await import("node:net");
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.on("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+function startCommandReal(opts) {
+  return new Promise((resolve) => {
+    const child = (0, import_node_child_process.spawn)("bash", ["-lc", opts.command], {
+      cwd: opts.cwd,
+      env: { ...process.env, ...opts.env, PORT: String(opts.port) },
+      stdio: ["ignore", "ignore", "ignore"],
+      detached: true
+    });
+    const stop = () => {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+        }
+      }
+    };
+    const giveUp = setTimeout(() => {
+      stop();
+      resolve(null);
+    }, opts.timeoutMs);
+    const probe = async () => {
+      for (; ; ) {
+        if (child.exitCode !== null) {
+          clearTimeout(giveUp);
+          resolve(null);
+          return;
+        }
+        try {
+          const res = await fetch(`http://127.0.0.1:${opts.port}${opts.readyPath}`, { signal: AbortSignal.timeout(2e3) });
+          if (res.ok) {
+            clearTimeout(giveUp);
+            resolve({ stop });
+            return;
+          }
+        } catch {
+        }
+        await new Promise((r) => setTimeout(r, 1e3));
+      }
+    };
+    child.on("error", () => {
+      clearTimeout(giveUp);
+      resolve(null);
+    });
+    void probe();
+  });
+}
+async function gitGrepPathsReal(needle, checkout) {
+  const out = await git(checkout, ["grep", "-l", "-F", "--", needle, "HEAD"]);
+  if (out === null) return null;
+  const lines = out.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+  return lines.map((l) => l.startsWith("HEAD:") ? l.slice(5) : l);
+}
 /*! Bundled license information:
 
 undici/lib/fetch/body.js:
