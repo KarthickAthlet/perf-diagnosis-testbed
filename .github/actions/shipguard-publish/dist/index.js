@@ -24492,7 +24492,9 @@ function engineOutcome(r) {
   const canFail = comparable && r.mayBlock && !r.baseline.stale && !r.baseline.deploymentUnverified;
   const blocking = r.findings.filter((c) => isBlockingFinding(c, r.blockOn));
   const failedBudgets = r.budgets.filter((b) => b.blocking && !b.passed);
-  if (canFail && (blocking.length > 0 || failedBudgets.length > 0)) {
+  const injections = r.previewInjections ?? [];
+  const likeForLike = injections.length === 0;
+  if (canFail && likeForLike && (blocking.length > 0 || failedBudgets.length > 0)) {
     if (blocking.length) reasons.push(`${blocking.length} new or worsened blocking finding(s)`);
     if (failedBudgets.length) reasons.push(`${failedBudgets.length} blocking budget(s) exceeded`);
     return { engine: r.engine, contribution: "fail", state: "regression", reasons };
@@ -24501,6 +24503,11 @@ function engineOutcome(r) {
   if (comparable && r.baseline.stale) reasons.push("baseline is stale (age)");
   if (comparable && r.baseline.deploymentUnverified) reasons.push("base deployment could not be confirmed as the compared commit");
   if (comparable && !r.mayBlock && (blocking.length || failedBudgets.length)) reasons.push(ADVISORY_REASON);
+  if (injections.length) {
+    for (const name of [...new Set(injections.map((i) => i.name))]) {
+      reasons.push(`preview injects ${name}: comparison not like-for-like`);
+    }
+  }
   if (r.headPages.some((p) => !p.success)) reasons.push("some pages were not scanned");
   if (r.basePages.some((p) => !p.success)) reasons.push("some base pages were not scanned");
   if (r.inconclusive.length) reasons.push(`${r.inconclusive.length} metric(s) inconclusive`);
@@ -24540,8 +24547,18 @@ var ARTIFACT_LIMITS = {
   engines: 7,
   findingsPerEngine: 2e3,
   pagesPerEngine: 200,
-  runsPerSide: 10
+  runsPerSide: 10,
+  /** 0b-3 amendment A2: preview-injection entries per engine part. */
+  previewInjectionsPerEngine: 10
 };
+var PREVIEW_INJECTIONS = [
+  {
+    name: "Netlify Drawer",
+    path: "/.netlify/scripts/cdp",
+    fix: "Netlify \u2192 Project configuration \u2192 Developer settings \u2192 Continuous deployment \u2192 Collaboration tools"
+  }
+];
+var PREVIEW_INJECTION_NAMES = new Set(PREVIEW_INJECTIONS.map((i) => i.name));
 var SHA40 = /^[0-9a-f]{40}$/;
 var SHA256 = /^[0-9a-f]{64}$/;
 var REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
@@ -24622,7 +24639,7 @@ function checkEngine(part, at, errs) {
       errs.push({ path: pa, message: "must be an object" });
       return;
     }
-    unknownKeys(p, ["measurements", "inconclusive", "budgets"], pa, errs);
+    unknownKeys(p, ["measurements", "inconclusive", "budgets", "previewInjections"], pa, errs);
     if (!Array.isArray(p.measurements)) errs.push({ path: `${pa}.measurements`, message: "must be an array" });
     else {
       for (const side of ["base", "head"]) {
@@ -24645,6 +24662,23 @@ function checkEngine(part, at, errs) {
     }
     if (!Array.isArray(p.inconclusive)) errs.push({ path: `${pa}.inconclusive`, message: "must be an array" });
     if (!Array.isArray(p.budgets)) errs.push({ path: `${pa}.budgets`, message: "must be an array" });
+    if (p.previewInjections !== void 0) {
+      const inj = p.previewInjections, ia = `${pa}.previewInjections`;
+      if (!Array.isArray(inj)) errs.push({ path: ia, message: "must be an array" });
+      else {
+        if (inj.length > ARTIFACT_LIMITS.previewInjectionsPerEngine) errs.push({ path: ia, message: `more than ${ARTIFACT_LIMITS.previewInjectionsPerEngine} entries` });
+        inj.forEach((e, i) => {
+          const ea = `${ia}[${i}]`;
+          if (!isObj2(e)) {
+            errs.push({ path: ea, message: "must be an object" });
+            return;
+          }
+          unknownKeys(e, ["name", "url"], ea, errs);
+          if (typeof e.name !== "string" || !PREVIEW_INJECTION_NAMES.has(e.name)) errs.push({ path: `${ea}.name`, message: "not a known preview injection" });
+          if (typeof e.url !== "string" || !/^https?:\/\//.test(e.url) || e.url.length > 2048) errs.push({ path: `${ea}.url`, message: "http(s) URL, \u2264 2048 chars" });
+        });
+      }
+    }
   }
 }
 function validateArtifact(raw) {
@@ -24980,6 +25014,11 @@ function renderComment(results, outcome, ctx) {
   if (shown.some((r) => r.status === "baseline-pending")) banners.push("> \u{1F535} ShipGuard setup is not finished (baseline pending). Results are informational.");
   if (shown.some((r) => r.baseline.stale)) banners.push("> \u{1F7E1} Some baselines are older than the freshness limit: shown, but they can't fail the check.");
   if (shown.some((r) => r.baseline.deploymentUnverified)) banners.push("> \u{1F7E1} A base deployment couldn't be confirmed as the compared commit: shown, but it can't fail the check.");
+  const injectionNames = [...new Set(shown.flatMap((r) => (r.previewInjections ?? []).map((i) => i.name)))];
+  for (const name of injectionNames) {
+    const fix = PREVIEW_INJECTIONS.find((i) => i.name === name)?.fix;
+    banners.push(`> \u{1F7E1} The PR preview loads the ${name}, which production doesn't, so timing differences may come from it.${fix === void 0 ? "" : ` Turn it off: ${fix}.`}`);
+  }
   const table = [
     "| Area | Result | Compared against | New | Resolved |",
     "|---|---|---|---|---|",
@@ -25430,6 +25469,9 @@ function performanceResult(part, engineVersion, trustedMergeBase) {
     findings,
     inconclusive: [],
     budgets: part.perf?.budgets ?? [],
+    // 0b-3 A2: preview-host scripts only the head loaded — the engine turns not-conclusive
+    // and the comment renders the banner above the table. Findings are still shown.
+    ...part.perf?.previewInjections && part.perf.previewInjections.length > 0 ? { previewInjections: part.perf.previewInjections } : {},
     mayBlock: false,
     // 0b-6 §7: performance may not block until calibration is approved
     blockOn: ["critical"]
