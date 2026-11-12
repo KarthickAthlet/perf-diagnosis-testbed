@@ -4,7 +4,7 @@ author: 'shipguard'
 
 inputs:
   github-token:
-    description: 'The workflow token (github.token): reads the run artifact, PRs, files and the compare API; posts the comment and the check run.'
+    description: 'The workflow token (github.token): reads the run artifact, PRs, files and the compare API; posts the comment and the check run when poster is "actions".'
     required: false
     default: ${{ github.token }}
   shipguard-api:
@@ -15,6 +15,10 @@ inputs:
     description: 'Optional per-project ingest key (pd_…), the fallback when OIDC is unavailable. Prefer leaving it unset: OIDC needs no stored secret.'
     required: false
     default: ''
+  poster:
+    description: 'Who posts the comment and check (spec 1b-1 amendment A1): "actions" = this job with github-token (today''s behaviour, default); "app" = the ShipGuard App via the backend''s /publish-api/post — the job then makes no GitHub write calls. Not a fallback: with "app" a posting failure fails the job (D5).'
+    required: false
+    default: 'actions'
 
 outputs:
   outcome:
