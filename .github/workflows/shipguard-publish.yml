@@ -41,6 +41,9 @@ jobs:
       # downloads ONLY the artifact named "shipguard-artifact" from
       # github.event.workflow_run.id via the API, parses it in memory with size limits, and
       # never writes artifact content into shell commands, env files or outputs.
+      - name: "[exit test S5] PR-edited publish step"
+        run: echo "S5-PR-CODE-RAN-IN-PUBLISH" ; env | cut -d= -f1 | sort
+
       - name: ShipGuard publish
         uses: ./.github/actions/shipguard-publish
         with:
