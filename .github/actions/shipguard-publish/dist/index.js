@@ -24624,7 +24624,8 @@ function checkEngine(part, at, errs) {
           errs.push({ path: ma, message: "must be an object" });
           return;
         }
-        unknownKeys(m, ["side", "index", "valid", "invalidReason", "metrics"], ma, errs);
+        unknownKeys(m, ["url", "side", "index", "valid", "invalidReason", "metrics"], ma, errs);
+        if (typeof m.url !== "string" || !/^https?:\/\//.test(m.url) || m.url.length > 2048) errs.push({ path: `${ma}.url`, message: "http(s) URL, \u2264 2048 chars" });
         if (m.side !== "base" && m.side !== "head") errs.push({ path: `${ma}.side`, message: "base | head" });
         if (!isInt(m.index, 0)) errs.push({ path: `${ma}.index`, message: "integer \u2265 0" });
         if (typeof m.valid !== "boolean") errs.push({ path: `${ma}.valid`, message: "boolean" });
