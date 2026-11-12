@@ -26899,6 +26899,7 @@ var ENGINE_SET = new Set(ENGINES);
 
 // src/scanMode.ts
 var DEFAULT_OUTPUT = "shipguard-artifact.json";
+var VERSION_PATH = "/version.txt";
 var urlProblem = (name, value) => {
   let u;
   try {
@@ -27084,7 +27085,8 @@ Baseline scan of ${ctx.headSha.slice(0, 7)} recorded: ${artifact2.engines.length
         headFindings,
         base: {
           mode: "production-paired",
-          sha: ctx.baseVersionMarker,
+          // only a real commit SHA; anything else (a 404 page, an empty body) is "unknown"
+          sha: deploymentVerified ? ctx.baseVersionMarker : null,
           deploymentVerified,
           pages: basePages.map((p) => ({ ...p, ...p.success ? {} : { failureReason: "navigation" } })),
           findings: []
@@ -27613,13 +27615,55 @@ function buildSummary(outcomes, failReason) {
   return lines.join("\n").trimEnd() + "\n";
 }
 
+// src/scanContext.ts
+var SCAN_ENGINE_VERSION = "perf-scan-0c3";
+var SHA40 = /^[0-9a-f]{40}$/;
+async function buildScanContext(ctx, env, baseUrl, versionPath, helpers) {
+  const event = ctx.eventName;
+  if (event !== "pull_request" && event !== "push" && event !== "workflow_dispatch") {
+    return { ok: false, reason: `scan mode runs on pull_request, push or workflow_dispatch, not ${event}.` };
+  }
+  const pr = event === "pull_request" ? ctx.payload.pull_request ?? null : null;
+  if (event === "pull_request" && (pr === null || typeof pr.number !== "number")) {
+    return { ok: false, reason: "pull_request event without a pull request payload." };
+  }
+  const headSha = pr !== null ? String(pr.head?.sha ?? "") : ctx.sha;
+  if (!SHA40.test(headSha)) return { ok: false, reason: "could not determine the head commit." };
+  let mergeBaseSha = null;
+  let baseVersionMarker = null;
+  if (pr !== null) {
+    const baseSha = String(pr.base?.sha ?? "");
+    if (SHA40.test(baseSha)) {
+      const mb = await helpers.mergeBase(baseSha, headSha);
+      mergeBaseSha = mb !== null && SHA40.test(mb.trim()) ? mb.trim() : null;
+    }
+    const marker = await helpers.fetchText(baseUrl.replace(/\/+$/, "") + versionPath);
+    baseVersionMarker = marker === null ? null : marker.trim();
+  }
+  const attempt = Number(env.GITHUB_RUN_ATTEMPT ?? "1");
+  return {
+    ok: true,
+    context: {
+      repository: `${ctx.repo.owner}/${ctx.repo.repo}`,
+      event,
+      prNumber: pr !== null ? pr.number : null,
+      headSha,
+      mergeBaseSha,
+      runId: ctx.runId,
+      runAttempt: Number.isInteger(attempt) && attempt >= 1 ? attempt : 1,
+      baseVersionMarker,
+      engineVersion: SCAN_ENGINE_VERSION
+    }
+  };
+}
+
 // src/main.ts
 async function main() {
   const context2 = github.context;
   const modeInput = core.getInput("mode");
   const mode = modeInput === "" ? "pr" : modeInput;
-  if (mode !== "pr" && mode !== "deploy") {
-    core.setFailed('mode must be "pr" or "deploy".');
+  if (mode !== "pr" && mode !== "deploy" && mode !== "scan") {
+    core.setFailed('mode must be "pr", "deploy" or "scan".');
     return;
   }
   if (mode === "pr" && (context2.eventName !== "pull_request" || !context2.payload.pull_request)) {
@@ -27703,11 +27747,45 @@ async function main() {
     },
     log: (msg) => core.info(msg)
   };
+  if (mode === "scan") {
+    const built = await buildScanContext(
+      { eventName: context2.eventName, sha: context2.sha, runId: context2.runId, repo: context2.repo, payload: context2.payload },
+      process.env,
+      core.getInput("base-url"),
+      VERSION_PATH,
+      { mergeBase: (a, b) => gitMergeBase(workspace, a, b), fetchText }
+    );
+    if (!built.ok) {
+      core.setFailed(built.reason);
+      return;
+    }
+    deps.scanContext = built.context;
+  }
   const result = await runAction(deps);
   core.setOutput("passed", String(result.ok));
   await core.summary.addRaw(result.summary).write();
   if (!result.ok) {
     core.setFailed(result.failReason ?? "The performance check failed.");
+  }
+}
+async function gitMergeBase(cwd, a, b) {
+  return new Promise((resolve) => {
+    const child = (0, import_node_child_process.spawn)("git", ["merge-base", a, b], { cwd, stdio: ["ignore", "pipe", "ignore"] });
+    let out = "";
+    child.stdout?.on("data", (c) => {
+      out += c.toString("utf8");
+    });
+    child.on("error", () => resolve(null));
+    child.on("close", (code) => resolve(code === 0 ? out.trim() : null));
+  });
+}
+async function fetchText(url) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(1e4), headers: { "Cache-Control": "no-cache" } });
+    if (!res.ok) return null;
+    return (await res.text()).slice(0, 200);
+  } catch {
+    return null;
   }
 }
 async function runLighthouse(url, formFactor) {
