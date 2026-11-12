@@ -29,7 +29,7 @@ jobs:
       # The public MergeDelta publish action, pinned by full commit SHA. No checkout at all:
       # nothing from the repository (and never PR code) runs in this job.
       - name: MergeDelta publish
-        uses: mergedelta/action/publish@f208b41101db87716caa0618351535ae0e05f4fe # v1.0.0
+        uses: mergedelta/action/publish@f59e6451c1012e06c5e1fb48531e5f43d2052678 # v1.0.0
         with:
           github-token: ${{ github.token }}
           poster: app
