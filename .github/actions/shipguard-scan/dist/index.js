@@ -25147,12 +25147,37 @@ function findLcpNode(audits) {
   }
   return null;
 }
+function decodeHtmlEntities(s) {
+  return s.replace(/&(amp|lt|gt|quot|apos|nbsp|#x[0-9a-fA-F]+|#\d+);/g, (whole, entity) => {
+    switch (entity) {
+      case "amp":
+        return "&";
+      case "lt":
+        return "<";
+      case "gt":
+        return ">";
+      case "quot":
+        return '"';
+      case "apos":
+        return "'";
+      case "nbsp":
+        return "\xA0";
+      // non-breaking space, as in the DOM
+      default: {
+        const code = entity[1] === "x" || entity[1] === "X" ? Number.parseInt(entity.slice(2), 16) : Number.parseInt(entity.slice(1), 10);
+        return Number.isInteger(code) && code > 0 && code <= 1114111 ? String.fromCodePoint(code) : whole;
+      }
+    }
+  });
+}
 function attr(snippet, name) {
   const m = new RegExp(
     `\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`,
     "i"
   ).exec(snippet);
-  return m ? m[1] ?? m[2] ?? m[3] : void 0;
+  if (m === null) return void 0;
+  const raw = m[1] ?? m[2] ?? m[3];
+  return raw === void 0 ? void 0 : decodeHtmlEntities(raw);
 }
 function runSummaryFromParsed(json, report) {
   const { lhr } = unwrapLhr(json);
@@ -25185,8 +25210,14 @@ function runSummaryFromParsed(json, report) {
     if (type !== "text") {
       const src = attr(snippet, "src");
       if (src) {
+        let absolute = null;
         try {
-          url = new URL(src, report.url).href;
+          const u = new URL(src);
+          if (u.protocol === "https:" || u.protocol === "http:") absolute = u;
+        } catch {
+        }
+        try {
+          url = absolute !== null ? src : new URL(src, report.url).href;
         } catch {
           url = src;
         }
@@ -26893,8 +26924,18 @@ var ARTIFACT_LIMITS = {
   engines: 7,
   findingsPerEngine: 2e3,
   pagesPerEngine: 200,
-  runsPerSide: 10
+  runsPerSide: 10,
+  /** 0b-3 amendment A2: preview-injection entries per engine part. */
+  previewInjectionsPerEngine: 10
 };
+var PREVIEW_INJECTIONS = [
+  {
+    name: "Netlify Drawer",
+    path: "/.netlify/scripts/cdp",
+    fix: "Netlify \u2192 Project configuration \u2192 Developer settings \u2192 Continuous deployment \u2192 Collaboration tools"
+  }
+];
+var PREVIEW_INJECTION_NAMES = new Set(PREVIEW_INJECTIONS.map((i) => i.name));
 var ENGINE_SET = new Set(ENGINES);
 
 // src/scanMode.ts
@@ -26982,6 +27023,8 @@ Baseline scan of ${ctx.headSha.slice(0, 7)} recorded: ${artifact2.engines.length
   const headFindings = [];
   const budgets = [];
   const analyses = [];
+  const headInjections = /* @__PURE__ */ new Map();
+  const baseInjectionNames = /* @__PURE__ */ new Set();
   for (const page of config.pages) {
     const basePageUrl = joinUrl(baseUrl, page.path);
     const prPageUrl = joinUrl(prUrl, page.path);
@@ -26996,6 +27039,13 @@ Baseline scan of ${ctx.headSha.slice(0, 7)} recorded: ${artifact2.engines.length
       if (headReport !== void 0) headRuns.push({ lhr: unwrapLhr2(headReport), lighthouseVersion: lighthouseVersionOf(headReport) });
     }
     deps.log(`Measured ${page.path}: warm-up discarded; ${baseRuns.length} base runs, ${headRuns.length} head runs.`);
+    for (const r of headRuns) {
+      for (const inj of scriptInjectionsOf(r.lhr)) headInjections.set(`${inj.name}
+${inj.url}`, inj);
+    }
+    for (const r of baseRuns) {
+      for (const inj of scriptInjectionsOf(r.lhr)) baseInjectionNames.add(inj.name);
+    }
     const baseCollected = collectRuns(baseRuns.map((r) => r.lhr), basePageUrl);
     const headCollected = collectRuns(headRuns.map((r) => r.lhr), prPageUrl);
     baseRuns.forEach((r, i) => {
@@ -27041,6 +27091,7 @@ Baseline scan of ${ctx.headSha.slice(0, 7)} recorded: ${artifact2.engines.length
       headFindings.push(...adaptPerfFindings(a.analysis.findings, joinUrl(prUrl, a.path)));
     }
   }
+  const previewInjections = [...headInjections.values()].filter((inj) => !baseInjectionNames.has(inj.name)).slice(0, ARTIFACT_LIMITS.previewInjectionsPerEngine);
   if (budget !== null) {
     for (const a of analyses) {
       if (a.analysis === null) continue;
@@ -27092,7 +27143,12 @@ Baseline scan of ${ctx.headSha.slice(0, 7)} recorded: ${artifact2.engines.length
           findings: []
           // the base side's findings live in the stored snapshot, not here
         },
-        perf: { measurements, inconclusive: [], budgets }
+        perf: {
+          measurements,
+          inconclusive: [],
+          budgets,
+          ...previewInjections.length > 0 ? { previewInjections } : {}
+        }
       }
     ]
   };
@@ -27122,6 +27178,30 @@ function unwrapLhr2(report) {
   const r = report;
   if (r !== null && typeof r === "object" && "lhr" in r && typeof r.lhr === "object") return r.lhr;
   return report;
+}
+function scriptInjectionsOf(report) {
+  const r = report;
+  if (r === null || typeof r !== "object") return [];
+  const audits = r.audits;
+  const items = audits?.["network-requests"]?.details?.items;
+  if (!Array.isArray(items)) return [];
+  const out = [];
+  for (const it of items) {
+    if (typeof it !== "object" || it === null) continue;
+    const item = it;
+    if (item.resourceType !== "Script") continue;
+    const url = typeof item.url === "string" ? item.url : "";
+    if (url === "") continue;
+    let path;
+    try {
+      path = new URL(url).pathname;
+    } catch {
+      continue;
+    }
+    const known = PREVIEW_INJECTIONS.find((inj) => inj.path === path);
+    if (known !== void 0) out.push({ name: known.name, url });
+  }
+  return out;
 }
 async function attemptRun(deps, url, formFactor) {
   try {
