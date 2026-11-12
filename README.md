@@ -10,3 +10,5 @@ Action against real pull requests.
 - `perf.config.json` and `perf.budgets.json` hold the pages to test and the budgets.
 - `thirdparty/widget.js` is a deliberately slow script, served from cdn.jsdelivr.net when a
   test PR wants a "third party".
+
+<!-- A/A measurement check: no site change (Netlify Drawer off, 2026-11-12) -->
