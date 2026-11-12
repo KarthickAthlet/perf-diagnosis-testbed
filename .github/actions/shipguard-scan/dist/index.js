@@ -27000,11 +27000,11 @@ Baseline scan of ${ctx.headSha.slice(0, 7)} recorded: ${artifact2.engines.length
     const headCollected = collectRuns(headRuns.map((r) => r.lhr), prPageUrl);
     baseRuns.forEach((r, i) => {
       const v = runValues(r.lhr, basePageUrl);
-      measurements.push({ side: "base", index: i, valid: v.valid, invalidReason: v.invalidReason, metrics: v.metrics });
+      measurements.push({ url: basePageUrl, side: "base", index: i, valid: v.valid, invalidReason: v.invalidReason, metrics: v.metrics });
     });
     headRuns.forEach((r, i) => {
       const v = runValues(r.lhr, prPageUrl);
-      measurements.push({ side: "head", index: i, valid: v.valid, invalidReason: v.invalidReason, metrics: v.metrics });
+      measurements.push({ url: prPageUrl, side: "head", index: i, valid: v.valid, invalidReason: v.invalidReason, metrics: v.metrics });
     });
     const baseMajor = baseRuns.length > 0 ? majorOf(baseRuns[0].lighthouseVersion) : null;
     const headMajor = headRuns.length > 0 ? majorOf(headRuns[0].lighthouseVersion) : null;
