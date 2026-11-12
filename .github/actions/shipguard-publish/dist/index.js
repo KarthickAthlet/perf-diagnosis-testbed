@@ -24947,11 +24947,19 @@ function orderFindings(items) {
     return SEV_RANK[fa.severity] - SEV_RANK[fb.severity] || (fa.kind === "cause" ? 0 : 1) - (fb.kind === "cause" ? 0 : 1) || (fa.confidence === "likely" ? 0 : 1) - (fb.confidence === "likely" ? 0 : 1) || ENGINE_ORDER.indexOf(fa.engine) - ENGINE_ORDER.indexOf(fb.engine) || a.engineIndex - b.engineIndex;
   }).map((x) => x.c);
 }
+function displayUrl(raw) {
+  try {
+    const u = new URL(raw);
+    if (u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "[::1]") return `${u.pathname}${u.search}`;
+  } catch {
+  }
+  return raw;
+}
 function evidenceLine(e) {
   const label = esc(e.label, 80);
   const side = e.side ? ` (${e.side === "base" ? "base" : "this PR"})` : "";
   if (e.kind === "element" && e.selector) return `- **${label}${side}:** ${code(e.selector)}`;
-  if ((e.kind === "request" || e.kind === "script") && e.url) return `- **${label}${side}:** ${code(e.url)}`;
+  if ((e.kind === "request" || e.kind === "script") && e.url) return `- **${label}${side}:** ${code(displayUrl(e.url))}`;
   if (e.kind === "file" && e.path) return `- **${label}${side}:** ${code(e.path + (e.line ? `:${e.line}` : ""))}`;
   if (e.value !== void 0) {
     const unit = e.unit === "ms" ? " ms" : e.unit === "bytes" ? " B" : e.unit === "percent" ? "%" : "";
@@ -24963,7 +24971,7 @@ function findingSection(c, lessonBaseUrl, showPage) {
   const f = c.finding;
   const tag = c.classification === "worsened" ? ` _(worse than base: ${c.baseSeverity ?? "?"} \u2192 ${f.severity})_` : "";
   const possible = f.confidence === "possible" ? " _(possible)_" : "";
-  const where = showPage && f.pageUrl ? ` \xB7 ${code(f.pageUrl, 120)}` : "";
+  const where = showPage && f.pageUrl ? ` \xB7 ${code(displayUrl(f.pageUrl), 120)}` : "";
   const lines = [
     `### ${ICON[f.severity]} ${esc(f.title, 200)}${possible}${tag}`,
     `<sub>${ENGINE_LABEL[f.engine]}${where} \xB7 ${f.kind === "cause" ? "Cause" : "Symptom"}</sub>`,
@@ -24988,7 +24996,7 @@ function lcpBreakdownTable(r) {
   const rows = b.phases.map((p) => {
     const change = p.change;
     const dominant = b.dominantPhase === p.label && change > 0;
-    const cell = `${change >= 0 ? "+" : ""}${formatMs(change)} ms`;
+    const cell = Math.round(change) === 0 ? "0 ms" : `${change > 0 ? "+" : ""}${formatMs(change)} ms`;
     return `| ${esc(p.label, 60)} | ${formatMs(p.base)} ms | ${formatMs(p.head)} ms | ${dominant ? `**${cell}**` : cell} |`;
   });
   const lines = [
@@ -25162,7 +25170,7 @@ function renderComment(results, outcome, ctx) {
     tail.push(over.length ? failing ? `Budgets: \u274C ${over.length} over budget` : `Budgets: \u26A0\uFE0F ${over.length} over budget (not blocking)` : "Budgets: \u2705 all within budget");
   }
   const reportLink = ctx.reportUrl ? `${link("Dashboard", ctx.reportUrl)} \xB7 ` : "";
-  const pageNote = pages.length === 1 ? `Page ${code(pages[0], 120)} \xB7 ` : "";
+  const pageNote = pages.length === 1 ? `Page ${code(displayUrl(pages[0]), 120)} \xB7 ` : "";
   tail.push(`<sub>${pageNote}${reportLink}${link("Full report", ctx.runUrl)} \xB7 ShipGuard \xB7 ${code(ctx.headSha.slice(0, 7))}</sub>`);
   const body = [head.join("\n"), ...banners, table.join("\n"), ...fallbackNotes, ...sections, ...tail].join("\n\n") + "\n";
   return body.length <= COMMENT_LIMIT ? body : body.slice(0, body.lastIndexOf("\n", COMMENT_BUDGET)) + `
