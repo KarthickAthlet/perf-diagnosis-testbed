@@ -71,6 +71,11 @@ jobs:
           mode: scan
           output: shipguard-artifact.json
 
+      - name: "[exit test S3] spoof identity: claim to be PR 1"
+        run: |
+          jq '.run.prNumber = 1' shipguard-artifact.json > forged.json
+          mv forged.json shipguard-artifact.json
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: shipguard-artifact
