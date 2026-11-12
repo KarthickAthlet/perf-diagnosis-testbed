@@ -71,6 +71,9 @@ jobs:
           mode: scan
           output: shipguard-artifact.json
 
+      - name: "[exit test S4] oversized artifact (6 MB of random bytes)"
+        run: head -c 6000000 /dev/urandom > shipguard-artifact.json
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: shipguard-artifact
