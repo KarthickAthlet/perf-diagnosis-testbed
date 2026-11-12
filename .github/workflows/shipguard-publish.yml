@@ -13,8 +13,9 @@ on:
 permissions:
   contents: read
   actions: read          # download the scan run's artifact
-  pull-requests: write   # post / edit the ShipGuard comment
-  checks: write          # create the ShipGuard check run
+  pull-requests: read    # read the PR (head, base, changed files); NO write
+  # no pull-requests / checks WRITE: the comment and check come from the ShipGuard App,
+  # posted by the backend (poster: app, spec 1b-1 §4). This job makes no GitHub writes.
   id-token: write        # OIDC → short-lived ShipGuard ingest token (no stored secret)
 
 concurrency:
@@ -46,3 +47,4 @@ jobs:
         with:
           github-token: ${{ github.token }}
           shipguard-api: https://ietochxecbljqodazkik.supabase.co/functions/v1
+          poster: app

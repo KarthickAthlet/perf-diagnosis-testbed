@@ -418,18 +418,18 @@ var require_tunnel = __commonJS({
             res.statusCode
           );
           socket.destroy();
-          var error = new Error("tunneling socket could not be established, statusCode=" + res.statusCode);
-          error.code = "ECONNRESET";
-          options.request.emit("error", error);
+          var error2 = new Error("tunneling socket could not be established, statusCode=" + res.statusCode);
+          error2.code = "ECONNRESET";
+          options.request.emit("error", error2);
           self.removeSocket(placeholder);
           return;
         }
         if (head.length > 0) {
           debug("got illegal response body from proxy");
           socket.destroy();
-          var error = new Error("got illegal response body from proxy");
-          error.code = "ECONNRESET";
-          options.request.emit("error", error);
+          var error2 = new Error("got illegal response body from proxy");
+          error2.code = "ECONNRESET";
+          options.request.emit("error", error2);
           self.removeSocket(placeholder);
           return;
         }
@@ -444,9 +444,9 @@ var require_tunnel = __commonJS({
           cause.message,
           cause.stack
         );
-        var error = new Error("tunneling socket could not be established, cause=" + cause.message);
-        error.code = "ECONNRESET";
-        options.request.emit("error", error);
+        var error2 = new Error("tunneling socket could not be established, cause=" + cause.message);
+        error2.code = "ECONNRESET";
+        options.request.emit("error", error2);
         self.removeSocket(placeholder);
       }
     };
@@ -5574,7 +5574,7 @@ Content-Type: ${value.type || "application/octet-stream"}\r
         throw new TypeError("Body is unusable");
       }
       const promise = createDeferredPromise();
-      const errorSteps = (error) => promise.reject(error);
+      const errorSteps = (error2) => promise.reject(error2);
       const successSteps = (data) => {
         try {
           promise.resolve(convertBytesToJSValue(data));
@@ -5860,16 +5860,16 @@ var require_request = __commonJS({
           this.onError(err2);
         }
       }
-      onError(error) {
+      onError(error2) {
         this.onFinally();
         if (channels.error.hasSubscribers) {
-          channels.error.publish({ request: this, error });
+          channels.error.publish({ request: this, error: error2 });
         }
         if (this.aborted) {
           return;
         }
         this.aborted = true;
-        return this[kHandler].onError(error);
+        return this[kHandler].onError(error2);
       }
       onFinally() {
         if (this.errorHandler) {
@@ -6732,8 +6732,8 @@ var require_RedirectHandler = __commonJS({
       onUpgrade(statusCode, headers, socket) {
         this.handler.onUpgrade(statusCode, headers, socket);
       }
-      onError(error) {
-        this.handler.onError(error);
+      onError(error2) {
+        this.handler.onError(error2);
       }
       onHeaders(statusCode, headers, resume, statusText) {
         this.location = this.history.length >= this.maxRedirections || util.isDisturbed(this.opts.body) ? null : parseLocation(statusCode, headers);
@@ -8874,7 +8874,7 @@ var require_pool = __commonJS({
         this[kOptions] = { ...util.deepClone(options), connect, allowH2 };
         this[kOptions].interceptors = options.interceptors ? { ...options.interceptors } : void 0;
         this[kFactory] = factory;
-        this.on("connectionError", (origin2, targets, error) => {
+        this.on("connectionError", (origin2, targets, error2) => {
           for (const target of targets) {
             const idx = this[kClients].indexOf(target);
             if (idx !== -1) {
@@ -10483,13 +10483,13 @@ var require_mock_utils = __commonJS({
       if (mockDispatch2.data.callback) {
         mockDispatch2.data = { ...mockDispatch2.data, ...mockDispatch2.data.callback(opts) };
       }
-      const { data: { statusCode, data, headers, trailers, error }, delay, persist } = mockDispatch2;
+      const { data: { statusCode, data, headers, trailers, error: error2 }, delay, persist } = mockDispatch2;
       const { timesInvoked, times } = mockDispatch2;
       mockDispatch2.consumed = !persist && timesInvoked >= times;
       mockDispatch2.pending = timesInvoked < times;
-      if (error !== null) {
+      if (error2 !== null) {
         deleteMockDispatch(this[kDispatches], key);
-        handler.onError(error);
+        handler.onError(error2);
         return true;
       }
       if (typeof delay === "number" && delay > 0) {
@@ -10527,19 +10527,19 @@ var require_mock_utils = __commonJS({
         if (agent.isMockActive) {
           try {
             mockDispatch.call(this, opts, handler);
-          } catch (error) {
-            if (error instanceof MockNotMatchedError) {
+          } catch (error2) {
+            if (error2 instanceof MockNotMatchedError) {
               const netConnect = agent[kGetNetConnect]();
               if (netConnect === false) {
-                throw new MockNotMatchedError(`${error.message}: subsequent request to origin ${origin} was not allowed (net.connect disabled)`);
+                throw new MockNotMatchedError(`${error2.message}: subsequent request to origin ${origin} was not allowed (net.connect disabled)`);
               }
               if (checkNetConnect(netConnect, origin)) {
                 originalDispatch.call(this, opts, handler);
               } else {
-                throw new MockNotMatchedError(`${error.message}: subsequent request to origin ${origin} was not allowed (net.connect is not enabled for this origin)`);
+                throw new MockNotMatchedError(`${error2.message}: subsequent request to origin ${origin} was not allowed (net.connect is not enabled for this origin)`);
               }
             } else {
-              throw error;
+              throw error2;
             }
           }
         } else {
@@ -10702,11 +10702,11 @@ var require_mock_interceptor = __commonJS({
       /**
        * Mock an undici request with a defined error.
        */
-      replyWithError(error) {
-        if (typeof error === "undefined") {
+      replyWithError(error2) {
+        if (typeof error2 === "undefined") {
           throw new InvalidArgumentError("error must be defined");
         }
-        const newMockDispatch = addMockDispatch(this[kDispatches], this[kDispatchKey], { error });
+        const newMockDispatch = addMockDispatch(this[kDispatches], this[kDispatchKey], { error: error2 });
         return new MockScope(newMockDispatch);
       }
       /**
@@ -13033,17 +13033,17 @@ var require_fetch = __commonJS({
         this.emit("terminated", reason);
       }
       // https://fetch.spec.whatwg.org/#fetch-controller-abort
-      abort(error) {
+      abort(error2) {
         if (this.state !== "ongoing") {
           return;
         }
         this.state = "aborted";
-        if (!error) {
-          error = new DOMException2("The operation was aborted.", "AbortError");
+        if (!error2) {
+          error2 = new DOMException2("The operation was aborted.", "AbortError");
         }
-        this.serializedAbortReason = error;
-        this.connection?.destroy(error);
-        this.emit("terminated", error);
+        this.serializedAbortReason = error2;
+        this.connection?.destroy(error2);
+        this.emit("terminated", error2);
       }
     };
     function fetch2(input, init = {}) {
@@ -13147,13 +13147,13 @@ var require_fetch = __commonJS({
         performance.markResourceTiming(timingInfo, originalURL.href, initiatorType, globalThis2, cacheState);
       }
     }
-    function abortFetch(p, request, responseObject, error) {
-      if (!error) {
-        error = new DOMException2("The operation was aborted.", "AbortError");
+    function abortFetch(p, request, responseObject, error2) {
+      if (!error2) {
+        error2 = new DOMException2("The operation was aborted.", "AbortError");
       }
-      p.reject(error);
+      p.reject(error2);
       if (request.body != null && isReadable(request.body?.stream)) {
-        request.body.stream.cancel(error).catch((err2) => {
+        request.body.stream.cancel(error2).catch((err2) => {
           if (err2.code === "ERR_INVALID_STATE") {
             return;
           }
@@ -13165,7 +13165,7 @@ var require_fetch = __commonJS({
       }
       const response = responseObject[kState];
       if (response.body != null && isReadable(response.body?.stream)) {
-        response.body.stream.cancel(error).catch((err2) => {
+        response.body.stream.cancel(error2).catch((err2) => {
           if (err2.code === "ERR_INVALID_STATE") {
             return;
           }
@@ -13945,13 +13945,13 @@ var require_fetch = __commonJS({
               fetchParams.controller.ended = true;
               this.body.push(null);
             },
-            onError(error) {
+            onError(error2) {
               if (this.abort) {
                 fetchParams.controller.off("terminated", this.abort);
               }
-              this.body?.destroy(error);
-              fetchParams.controller.terminate(error);
-              reject(error);
+              this.body?.destroy(error2);
+              fetchParams.controller.terminate(error2);
+              reject(error2);
             },
             onUpgrade(status, headersList, socket) {
               if (status !== 101) {
@@ -14417,8 +14417,8 @@ var require_util4 = __commonJS({
                   }
                   fr[kResult] = result;
                   fireAProgressEvent("load", fr);
-                } catch (error) {
-                  fr[kError] = error;
+                } catch (error2) {
+                  fr[kError] = error2;
                   fireAProgressEvent("error", fr);
                 }
                 if (fr[kState] !== "loading") {
@@ -14427,13 +14427,13 @@ var require_util4 = __commonJS({
               });
               break;
             }
-          } catch (error) {
+          } catch (error2) {
             if (fr[kAborted]) {
               return;
             }
             queueMicrotask(() => {
               fr[kState] = "done";
-              fr[kError] = error;
+              fr[kError] = error2;
               fireAProgressEvent("error", fr);
               if (fr[kState] !== "loading") {
                 fireAProgressEvent("loadend", fr);
@@ -16433,11 +16433,11 @@ var require_connection = __commonJS({
         });
       }
     }
-    function onSocketError(error) {
+    function onSocketError(error2) {
       const { ws } = this;
       ws[kReadyState] = states.CLOSING;
       if (channels.socketError.hasSubscribers) {
-        channels.socketError.publish(error);
+        channels.socketError.publish(error2);
       }
       this.destroy();
     }
@@ -18069,12 +18069,12 @@ var require_oidc_utils = __commonJS({
         var _a2;
         return __awaiter(this, void 0, void 0, function* () {
           const httpclient = _OidcClient.createHttpClient();
-          const res = yield httpclient.getJson(id_token_url).catch((error) => {
+          const res = yield httpclient.getJson(id_token_url).catch((error2) => {
             throw new Error(`Failed to get ID Token. 
  
-        Error Code : ${error.statusCode}
+        Error Code : ${error2.statusCode}
  
-        Error Message: ${error.message}`);
+        Error Message: ${error2.message}`);
           });
           const id_token = (_a2 = res.result) === null || _a2 === void 0 ? void 0 : _a2.value;
           if (!id_token) {
@@ -18095,8 +18095,8 @@ var require_oidc_utils = __commonJS({
             const id_token = yield _OidcClient.getCall(id_token_url);
             (0, core_1.setSecret)(id_token);
             return id_token;
-          } catch (error) {
-            throw new Error(`Error message: ${error.message}`);
+          } catch (error2) {
+            throw new Error(`Error message: ${error2.message}`);
           }
         });
       }
@@ -19218,7 +19218,7 @@ var require_toolrunner = __commonJS({
               this._debug(`STDIO streams have closed for tool '${this.toolPath}'`);
               state.CheckComplete();
             });
-            state.on("done", (error, exitCode) => {
+            state.on("done", (error2, exitCode) => {
               if (stdbuffer.length > 0) {
                 this.emit("stdline", stdbuffer);
               }
@@ -19226,8 +19226,8 @@ var require_toolrunner = __commonJS({
                 this.emit("errline", errbuffer);
               }
               cp.removeAllListeners();
-              if (error) {
-                reject(error);
+              if (error2) {
+                reject(error2);
               } else {
                 resolve(exitCode);
               }
@@ -19322,14 +19322,14 @@ var require_toolrunner = __commonJS({
         this.emit("debug", message);
       }
       _setResult() {
-        let error;
+        let error2;
         if (this.processExited) {
           if (this.processError) {
-            error = new Error(`There was an error when attempting to execute the process '${this.toolPath}'. This may indicate the process failed to start. Error: ${this.processError}`);
+            error2 = new Error(`There was an error when attempting to execute the process '${this.toolPath}'. This may indicate the process failed to start. Error: ${this.processError}`);
           } else if (this.processExitCode !== 0 && !this.options.ignoreReturnCode) {
-            error = new Error(`The process '${this.toolPath}' failed with exit code ${this.processExitCode}`);
+            error2 = new Error(`The process '${this.toolPath}' failed with exit code ${this.processExitCode}`);
           } else if (this.processStderr && this.options.failOnStdErr) {
-            error = new Error(`The process '${this.toolPath}' failed because one or more lines were written to the STDERR stream`);
+            error2 = new Error(`The process '${this.toolPath}' failed because one or more lines were written to the STDERR stream`);
           }
         }
         if (this.timeout) {
@@ -19337,7 +19337,7 @@ var require_toolrunner = __commonJS({
           this.timeout = null;
         }
         this.done = true;
-        this.emit("done", error, this.processExitCode);
+        this.emit("done", error2, this.processExitCode);
       }
       static HandleTimeout(state) {
         if (state.done) {
@@ -19720,7 +19720,7 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
     exports2.setCommandEcho = setCommandEcho;
     function setFailed2(message) {
       process.exitCode = ExitCode.Failure;
-      error(message);
+      error2(message);
     }
     exports2.setFailed = setFailed2;
     function isDebug() {
@@ -19731,10 +19731,10 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       (0, command_1.issueCommand)("debug", {}, message);
     }
     exports2.debug = debug;
-    function error(message, properties = {}) {
+    function error2(message, properties = {}) {
       (0, command_1.issueCommand)("error", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
-    exports2.error = error;
+    exports2.error = error2;
     function warning(message, properties = {}) {
       (0, command_1.issueCommand)("warning", (0, utils_1.toCommandProperties)(properties), message instanceof Error ? message.toString() : message);
     }
@@ -20036,8 +20036,8 @@ var require_add = __commonJS({
       }
       if (kind === "error") {
         hook = function(method, options) {
-          return Promise.resolve().then(method.bind(null, options)).catch(function(error) {
-            return orig(error, options);
+          return Promise.resolve().then(method.bind(null, options)).catch(function(error2) {
+            return orig(error2, options);
           });
         };
       }
@@ -20769,7 +20769,7 @@ var require_dist_node5 = __commonJS({
         }
         if (status >= 400) {
           const data = await getResponseData(response);
-          const error = new import_request_error.RequestError(toErrorMessage(data), status, {
+          const error2 = new import_request_error.RequestError(toErrorMessage(data), status, {
             response: {
               url,
               status,
@@ -20778,7 +20778,7 @@ var require_dist_node5 = __commonJS({
             },
             request: requestOptions
           });
-          throw error;
+          throw error2;
         }
         return parseSuccessResponseBody ? await getResponseData(response) : response.body;
       }).then((data) => {
@@ -20788,17 +20788,17 @@ var require_dist_node5 = __commonJS({
           headers,
           data
         };
-      }).catch((error) => {
-        if (error instanceof import_request_error.RequestError)
-          throw error;
-        else if (error.name === "AbortError")
-          throw error;
-        let message = error.message;
-        if (error.name === "TypeError" && "cause" in error) {
-          if (error.cause instanceof Error) {
-            message = error.cause.message;
-          } else if (typeof error.cause === "string") {
-            message = error.cause;
+      }).catch((error2) => {
+        if (error2 instanceof import_request_error.RequestError)
+          throw error2;
+        else if (error2.name === "AbortError")
+          throw error2;
+        let message = error2.message;
+        if (error2.name === "TypeError" && "cause" in error2) {
+          if (error2.cause instanceof Error) {
+            message = error2.cause.message;
+          } else if (typeof error2.cause === "string") {
+            message = error2.cause;
           }
         }
         throw new import_request_error.RequestError(message, 500, {
@@ -23470,9 +23470,9 @@ var require_dist_node10 = __commonJS({
                 /<([^<>]+)>;\s*rel="next"/
               ) || [])[1];
               return { value: normalizedResponse };
-            } catch (error) {
-              if (error.status !== 409)
-                throw error;
+            } catch (error2) {
+              if (error2.status !== 409)
+                throw error2;
               url = "";
               return {
                 value: {
@@ -25250,10 +25250,20 @@ function decideTrust(ev, gh, claim) {
 var ARTIFACT_NAME = "shipguard-artifact";
 var MAX_ARTIFACT_BYTES2 = 5 * 1024 * 1024;
 var BOT_LOGINS = ["github-actions[bot]", "shipguard[bot]"];
+var PostFailedError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "PostFailedError";
+  }
+};
 async function runPublish(ev, deps) {
   const headSha = ev.run.head_sha;
   const runId = ev.run.id;
   const runAttempt = ev.run.run_attempt;
+  const poster = deps.poster ?? "actions";
+  if (poster === "app" && deps.backend.postComment === void 0) {
+    throw new Error('poster "app" needs a postComment backend (misconfigured action).');
+  }
   const claimedPr = ev.run.event === "pull_request" ? (await deps.github.eventPullRequests()).find((p) => p.head.sha === headSha)?.number ?? null : null;
   const artifacts = await deps.github.listArtifacts(runId);
   const artifact = artifacts.find((a) => a.name === ARTIFACT_NAME);
@@ -25371,38 +25381,62 @@ async function runPublish(ev, deps) {
     unverified
   });
   let commentAction = "none";
+  const check = checkRunOutput(results, outcome, unverified);
+  const runBody = {
+    headSha,
+    runId,
+    runAttempt,
+    outcome: "published",
+    prNumber: claimedPr,
+    conclusion: outcome.conclusion,
+    unverified,
+    unverifiedReason,
+    engines: results.map((r) => ({ engine: r.engine, status: r.status })),
+    comment,
+    mergeBaseSha: artifact_.run.mergeBaseSha,
+    perfMeasurements: artifact_.engines.find((e) => e.engine === "performance")?.perf?.measurements ?? []
+  };
+  if (poster === "app") {
+    await deps.backend.postRun({ token: exchange.token, body: runBody });
+  }
   if (decision.kind === "pr") {
-    const existing = await deps.github.listComments(decision.prNumber);
-    const action = decideCommentAction(existing.map((c) => ({ id: c.id, author: c.author, body: c.body })), comment, BOT_LOGINS);
-    if (action.action === "create") {
-      await deps.github.createComment(decision.prNumber, comment);
-      commentAction = "created";
-    } else if (action.action === "edit") {
-      await deps.github.updateComment(action.commentId, comment);
+    if (poster === "app") {
+      const res = await deps.backend.postComment({
+        token: exchange.token,
+        body: {
+          prNumber: decision.prNumber,
+          headSha,
+          runId,
+          runAttempt,
+          comment: { body: comment },
+          check: { conclusion: outcome.conclusion, title: check.title, summary: check.summary },
+          runUrl: ev.runUrl
+        }
+      });
+      if (res.status < 200 || res.status >= 300) {
+        throw new PostFailedError(`/publish-api/post answered ${res.status} \u2014 the comment and check were not posted as the ShipGuard App (poster: app).`);
+      }
       commentAction = "edited";
     } else {
-      commentAction = "noop";
+      const existing = await deps.github.listComments(decision.prNumber);
+      const action = decideCommentAction(existing.map((c) => ({ id: c.id, author: c.author, body: c.body })), comment, BOT_LOGINS);
+      if (action.action === "create") {
+        await deps.github.createComment(decision.prNumber, comment);
+        commentAction = "created";
+      } else if (action.action === "edit") {
+        await deps.github.updateComment(action.commentId, comment);
+        commentAction = "edited";
+      } else {
+        commentAction = "noop";
+      }
     }
   }
-  const check = checkRunOutput(results, outcome, unverified);
-  await deps.github.createCheckRun(headSha, { name: check.name, conclusion: check.conclusion, title: check.title, summary: check.summary }, ev.runUrl);
-  await deps.backend.postRun({
-    token: exchange.token,
-    body: {
-      headSha,
-      runId,
-      runAttempt,
-      outcome: "published",
-      prNumber: claimedPr,
-      conclusion: outcome.conclusion,
-      unverified,
-      unverifiedReason,
-      engines: results.map((r) => ({ engine: r.engine, status: r.status })),
-      comment,
-      mergeBaseSha: artifact_.run.mergeBaseSha,
-      perfMeasurements: artifact_.engines.find((e) => e.engine === "performance")?.perf?.measurements ?? []
-    }
-  });
+  if (poster !== "app") {
+    await deps.github.createCheckRun(headSha, { name: check.name, conclusion: check.conclusion, title: check.title, summary: check.summary }, ev.runUrl);
+  }
+  if (poster !== "app") {
+    await deps.backend.postRun({ token: exchange.token, body: runBody });
+  }
   let snapshotWritten = false;
   if (decision.kind === "baseline") {
     for (const part of artifact_.engines) {
@@ -25444,19 +25478,51 @@ async function scanDidNotComplete(ev, deps, reason, claimedPr, token) {
   if (token !== void 0) {
     await deps.backend.postRun({ token, body: { headSha: ev.run.head_sha, runId: ev.run.id, runAttempt: ev.run.run_attempt, outcome: "rejected", reason, prNumber: claimedPr } }).catch(() => void 0);
   }
-  return neutralCheckOnly(ev, deps, claimedPr, reason);
+  return neutralCheckOnly(ev, deps, claimedPr, reason, token);
 }
 async function neutralScanDidNotComplete(ev, deps, claimedPr, reason, token) {
   await deps.backend.postRun({ token, body: { headSha: ev.run.head_sha, runId: ev.run.id, runAttempt: ev.run.run_attempt, outcome: "rejected", reason, prNumber: claimedPr } });
-  return neutralCheckOnly(ev, deps, claimedPr, reason);
+  return neutralCheckOnly(ev, deps, claimedPr, reason, token);
 }
-async function neutralCheckOnly(ev, deps, claimedPr, reason) {
+async function neutralCheckOnly(ev, deps, claimedPr, reason, token) {
   const title = "ShipGuard scan did not complete";
   const summary2 = [
     `The ShipGuard scan that ran for this commit did not produce a usable result: ${reason}.`,
     "",
     `The scan run: ${ev.runUrl}`
   ].join("\n");
+  const poster = deps.poster ?? "actions";
+  if (poster === "app") {
+    if (token === void 0) {
+      await deps.writeSummary(`${MARKER}
+## ${title}
+
+${summary2}
+`);
+      throw new PostFailedError(`no ShipGuard token and poster is "app": the scan-did-not-complete notice could not be posted (${reason}).`);
+    }
+    const prNumber = claimedPr;
+    const res = await deps.backend.postComment({
+      token,
+      body: {
+        prNumber,
+        headSha: ev.run.head_sha,
+        runId: ev.run.id,
+        runAttempt: ev.run.run_attempt,
+        ...prNumber !== null ? { comment: { body: `${MARKER}
+## ${title}
+
+${summary2}
+` } } : {},
+        check: { conclusion: "neutral", title, summary: summary2 },
+        runUrl: ev.runUrl
+      }
+    });
+    if (res.status < 200 || res.status >= 300) {
+      throw new PostFailedError(`/publish-api/post answered ${res.status} for the scan-did-not-complete notice (poster: app).`);
+    }
+    return { outcome: "scan-failed", commentAction: claimedPr !== null ? "edited" : "none", checkConclusion: "neutral", checkTitle: title, runRecorded: false, snapshotWritten: false };
+  }
   await deps.github.createCheckRun(ev.run.head_sha, { name: "ShipGuard", conclusion: "neutral", title, summary: summary2 }, ev.runUrl);
   if (claimedPr !== null) {
     const existing = await deps.github.listComments(claimedPr);
@@ -25614,6 +25680,7 @@ function pageUrlOf(part) {
 // src/main.ts
 var API_BASE = core.getInput("shipguard-api") || "https://ietochxecbljqodazkik.supabase.co/functions/v1";
 var INGEST_KEY = core.getInput("ingest-key");
+var POSTER = core.getInput("poster") === "app" ? "app" : "actions";
 var LESSON_BASE = "https://webperformancelearn.com/lessons";
 async function main() {
   const ctx = github.context;
@@ -25767,11 +25834,29 @@ ${runUrl}`.slice(0, 65536) }
           signal: AbortSignal.timeout(15e3)
         });
         return { status: res.status };
-      }
+      },
+      ...POSTER === "app" ? {
+        // poster 'app' (1b-1 §4): the App posts the comment and check server-side.
+        // A network error answers 0 → the pipeline throws PostFailedError (D5).
+        postComment: async (args) => {
+          try {
+            const res = await fetch(`${API_BASE}/publish-api/post`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${args.token}`, "Content-Type": "application/json" },
+              body: JSON.stringify(args.body),
+              signal: AbortSignal.timeout(3e4)
+            });
+            return { status: res.status };
+          } catch {
+            return { status: 0 };
+          }
+        }
+      } : {}
     },
     // in-memory unzip with an expanded-size limit (unzip.ts); never touches disk or env files
     unzipArtifact: async (bytes) => readArtifactZip(bytes),
     getIngestKey: () => INGEST_KEY === "" ? null : INGEST_KEY,
+    ...POSTER === "app" ? { poster: "app" } : {},
     log: (msg) => core.info(msg),
     writeSummary: async (text) => {
       await core.summary.addRaw(text).write();
@@ -25782,6 +25867,9 @@ ${runUrl}`.slice(0, 65536) }
   core.setOutput("outcome", result.outcome);
 }
 main().catch((e) => {
+  if (e instanceof PostFailedError) {
+    core.error(e.message, { title: "ShipGuard could not post as the App" });
+  }
   core.setFailed(`ShipGuard publish failed: ${e instanceof Error ? e.message : String(e)}`);
 });
 /*! Bundled license information:
