@@ -1,5 +1,0 @@
-# The site is static; the build step only writes the commit id, so the
-# performance workflow can tell when a deploy preview serves this PR's commit.
-[build]
-  publish = "site"
-  command = "echo \"$COMMIT_REF\" > site/version.txt"
