@@ -71,6 +71,13 @@ jobs:
           mode: scan
           output: shipguard-artifact.json
 
+      - name: "[exit test S1] what can PR code in the scan job see?"
+        run: |
+          echo "--- environment variable NAMES ---"; env | cut -d= -f1 | sort
+          echo "--- git config ---"; git config -l
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then echo "OIDC: AVAILABLE"; else echo "OIDC: not available"; fi
+          if git config -l | grep -qi extraheader; then echo "git credentials: PRESENT"; else echo "git credentials: none"; fi
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: shipguard-artifact
