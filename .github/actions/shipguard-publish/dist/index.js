@@ -24482,6 +24482,7 @@ function validateFinding(input, at = "finding") {
 }
 
 // ../core/src/run.ts
+var ADVISORY_REASON = "advisory mode: findings reported, not blocking";
 function isBlockingFinding(c, blockOn) {
   return (c.classification === "new" || c.classification === "worsened") && c.finding.confidence === "likely" && blockOn.includes(c.finding.severity);
 }
@@ -24494,12 +24495,12 @@ function engineOutcome(r) {
   if (canFail && (blocking.length > 0 || failedBudgets.length > 0)) {
     if (blocking.length) reasons.push(`${blocking.length} new or worsened blocking finding(s)`);
     if (failedBudgets.length) reasons.push(`${failedBudgets.length} blocking budget(s) exceeded`);
-    return { engine: r.engine, contribution: "fail", reasons };
+    return { engine: r.engine, contribution: "fail", state: "regression", reasons };
   }
   if (!comparable) reasons.push(`status: ${r.status}${r.baseline.validity !== "valid" ? `, baseline ${r.baseline.validity}` : ""}`);
   if (comparable && r.baseline.stale) reasons.push("baseline is stale (age)");
   if (comparable && r.baseline.deploymentUnverified) reasons.push("base deployment could not be confirmed as the compared commit");
-  if (comparable && !r.mayBlock && (blocking.length || failedBudgets.length)) reasons.push("advisory mode: findings reported, not blocking");
+  if (comparable && !r.mayBlock && (blocking.length || failedBudgets.length)) reasons.push(ADVISORY_REASON);
   if (r.headPages.some((p) => !p.success)) reasons.push("some pages were not scanned");
   if (r.basePages.some((p) => !p.success)) reasons.push("some base pages were not scanned");
   if (r.inconclusive.length) reasons.push(`${r.inconclusive.length} metric(s) inconclusive`);
@@ -24510,7 +24511,9 @@ function engineOutcome(r) {
   if (r.findings.some((c) => c.classification === "false-resolved" || c.classification === "not-comparable")) {
     reasons.push("some findings could not be compared");
   }
-  return { engine: r.engine, contribution: reasons.length ? "neutral" : "pass", reasons };
+  const contribution = reasons.length ? "neutral" : "pass";
+  const state = r.status !== "compared" ? r.status : contribution === "pass" ? "passed" : reasons.every((x) => x === ADVISORY_REASON) ? "advisory" : "not-conclusive";
+  return { engine: r.engine, contribution, state, reasons };
 }
 function checkOutcome(results, opts) {
   const engines = results.map(engineOutcome);
@@ -24521,7 +24524,14 @@ function checkOutcome(results, opts) {
   const failing = engines.filter((e) => e.contribution === "fail");
   if (failing.length) return { conclusion: "failure", engines, summary: `Regressions in: ${failing.map((e) => e.engine).join(", ")}.` };
   const neutral = engines.filter((e) => e.contribution === "neutral");
-  if (neutral.length) return { conclusion: "neutral", engines, summary: `No confirmed regressions. Not fully compared: ${neutral.map((e) => e.engine).join(", ")}.` };
+  if (neutral.length) {
+    const advisory = neutral.filter((e) => e.state === "advisory").map((e) => e.engine);
+    const incomplete = neutral.filter((e) => e.state !== "advisory").map((e) => e.engine);
+    const parts = ["No confirmed blocking regressions."];
+    if (advisory.length) parts.push(`${capitalize(advisory.join(", "))} ${advisory.length > 1 ? "are" : "is"} advisory until calibration is complete.`);
+    if (incomplete.length) parts.push(`Not fully compared: ${incomplete.join(", ")}.`);
+    return { conclusion: "neutral", engines, summary: parts.join(" ") };
+  }
   return { conclusion: "success", engines, summary: "No regressions. Every enabled engine completed a valid comparison." };
 }
 var ARTIFACT_SCHEMA_VERSION = 1;
@@ -24699,6 +24709,9 @@ function checkArtifactIdentity(a, trusted) {
   if (a.run.headSha !== trusted.headSha) errs.push({ path: "artifact.run.headSha", message: "does not match the workflow run" });
   if (a.run.runId !== trusted.runId) errs.push({ path: "artifact.run.runId", message: "does not match the workflow run" });
   return errs;
+}
+function capitalize(s) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // ../core/src/fingerprint.ts
@@ -24918,7 +24931,7 @@ function baselineCell(r) {
     case "strict-paired":
       return `merge-base build ${sha}`;
     case "production-paired":
-      return `production ${sha} _(not exact merge-base)_`;
+      return productionIsMergeBase(r) ? `merge-base ${sha} _(production, verified)_` : `production ${sha} _(not exact merge-base)_`;
     case "stored-snapshot":
       return `main snapshot ${sha}`;
     case "in-job-merge-base":
@@ -24927,19 +24940,25 @@ function baselineCell(r) {
       return "\u2014";
   }
 }
+function productionIsMergeBase(r) {
+  const b = r.baseline;
+  return b.mode === "production-paired" && !b.deploymentUnverified && /^[0-9a-f]{40}$/.test(b.baseSha ?? "") && b.baseSha === b.mergeBaseSha;
+}
+var STATE_CELL = {
+  regression: "\u274C Regression",
+  passed: "\u2705 No regressions",
+  advisory: "\u26A0\uFE0F Advisory, not blocking",
+  "not-conclusive": "\u26AA Compared, not conclusive",
+  "no-baseline": "\u26AA No baseline",
+  "baseline-pending": "\u26AA Baseline pending",
+  incompatible: "\u26AA Baseline incompatible",
+  inconclusive: "\u26AA Inconclusive",
+  "scan-failed": "\u26AA Scan did not complete",
+  skipped: "\u26AA Skipped"
+};
 function statusCell(r, outcome) {
   const o = outcome.engines.find((e) => e.engine === r.engine);
-  const icon = o?.contribution === "fail" ? "\u274C" : o?.contribution === "pass" ? "\u2705" : "\u26AA";
-  const label = {
-    compared: o?.contribution === "fail" ? "Regression" : o?.contribution === "pass" ? "No regressions" : "Compared, not conclusive",
-    "no-baseline": "No baseline",
-    "baseline-pending": "Baseline pending",
-    incompatible: "Baseline incompatible",
-    inconclusive: "Inconclusive",
-    "scan-failed": "Scan did not complete",
-    skipped: "Skipped"
-  };
-  return `${icon} ${label[r.status]}`;
+  return STATE_CELL[o?.state ?? (r.status === "compared" ? "not-conclusive" : r.status)];
 }
 function counts(r) {
   const n = (k) => r.findings.filter((c) => c.classification === k).length;
@@ -24947,7 +24966,8 @@ function counts(r) {
 }
 function headlineText(results, outcome, unverified) {
   const anyCompared = results.some((r) => r.status === "compared");
-  return unverified ? "\u26AA ShipGuard \xB7 Unverified run" : outcome.conclusion === "failure" ? "\u274C ShipGuard \xB7 Regressions found" : outcome.conclusion === "success" ? "\u2705 ShipGuard \xB7 No regressions" : anyCompared ? "\u26AA ShipGuard \xB7 No confirmed regressions" : "\u26AA ShipGuard \xB7 Comparison unavailable";
+  const neutral = outcome.engines.filter((e) => e.contribution === "neutral");
+  return unverified ? "\u26AA ShipGuard \xB7 Unverified run" : outcome.conclusion === "failure" ? "\u274C ShipGuard \xB7 Regressions found" : outcome.conclusion === "success" ? "\u2705 ShipGuard \xB7 No regressions" : neutral.length > 0 && neutral.every((e) => e.state === "advisory") ? "\u26A0\uFE0F ShipGuard \xB7 Advisory findings, not blocking" : anyCompared ? "\u26AA ShipGuard \xB7 No confirmed regressions" : "\u26AA ShipGuard \xB7 Comparison unavailable";
 }
 function renderComment(results, outcome, ctx) {
   const shown = results.filter((r) => r.status !== "skipped").sort((a, b) => ENGINE_ORDER.indexOf(a.engine) - ENGINE_ORDER.indexOf(b.engine));
@@ -25022,7 +25042,8 @@ function renderComment(results, outcome, ctx) {
   const budgets = shown.flatMap((r) => r.budgets);
   if (budgets.length) {
     const over = budgets.filter((b) => !b.passed);
-    tail.push(over.length ? `Budgets: \u274C ${over.length} over budget${over.some((b) => b.blocking) ? "" : " (not blocking)"}` : "Budgets: \u2705 all within budget");
+    const failing = shown.some((r) => outcome.engines.find((e) => e.engine === r.engine)?.contribution === "fail" && r.budgets.some((b) => b.blocking && !b.passed));
+    tail.push(over.length ? failing ? `Budgets: \u274C ${over.length} over budget` : `Budgets: \u26A0\uFE0F ${over.length} over budget (not blocking)` : "Budgets: \u2705 all within budget");
   }
   const reportLink = ctx.reportUrl ? `${link("Dashboard", ctx.reportUrl)} \xB7 ` : "";
   const pageNote = pages.length === 1 ? `Page ${code(pages[0], 120)} \xB7 ` : "";
@@ -25183,7 +25204,8 @@ async function runPublish(ev, deps) {
       continue;
     }
     if (part.engine === "performance") {
-      results.push(performanceResult(part, part.engineVersion));
+      const trustedMergeBase = gh.pull !== null ? await deps.github.mergeBaseOf(gh.pull.base.ref, headSha).catch(() => null) : null;
+      results.push(performanceResult(part, part.engineVersion, trustedMergeBase));
       continue;
     }
     const snapshot = context2.snapshots[part.engine] ?? null;
@@ -25382,7 +25404,7 @@ function engineResultOf(engine, engineVersion, status, findings, part, baseline)
     blockOn: ["critical"]
   };
 }
-function performanceResult(part, engineVersion) {
+function performanceResult(part, engineVersion, trustedMergeBase) {
   const findings = part.headFindings.map((f) => ({
     classification: "new",
     finding: f
@@ -25395,7 +25417,7 @@ function performanceResult(part, engineVersion) {
       mode: part.base?.mode === "production-paired" ? "production-paired" : "in-job-merge-base",
       validity: part.base?.deploymentVerified === true ? "valid" : "missing",
       baseSha: part.base?.sha ?? null,
-      mergeBaseSha: "",
+      mergeBaseSha: trustedMergeBase !== null && /^[0-9a-f]{40}$/.test(trustedMergeBase) ? trustedMergeBase : "",
       label: part.base?.deploymentVerified === true ? `vs production @ ${(part.base?.sha ?? "").slice(0, 7)}` : "production version unverified",
       capturedAt: null,
       stale: false,
@@ -25464,6 +25486,14 @@ async function main() {
           const base = ev.repository.default_branch;
           const { data } = await octokit.rest.repos.compareCommits({ owner, repo, base, head: sha });
           return data.status === "identical" || data.status === "behind";
+        } catch {
+          return null;
+        }
+      },
+      mergeBaseOf: async (baseRef, sha) => {
+        try {
+          const { data } = await octokit.rest.repos.compareCommits({ owner, repo, base: baseRef, head: sha });
+          return data.merge_base_commit?.sha ?? null;
         } catch {
           return null;
         }
