@@ -26914,12 +26914,19 @@ var import_node_crypto = require("node:crypto");
 // ../core/src/finding.ts
 var ENGINES = ["performance", "a11y", "seo", "security", "bundle", "links", "i18n"];
 var FINDING_SCHEMA_VERSION = 1;
-var FINGERPRINT_VERSION = 1;
+var FINGERPRINT_VERSION = 2;
 
 // ../core/src/fingerprint.ts
 function fingerprintFinding(engine, fields) {
   const key = buildStableKey(engine, fields);
   return (0, import_node_crypto.createHash)("sha256").update(engine + "|" + key).digest("hex").slice(0, 16);
+}
+function pagePath(raw) {
+  try {
+    return new URL(normaliseUrl(raw)).pathname;
+  } catch {
+    return normaliseUrl(raw);
+  }
 }
 function normaliseUrl(raw) {
   try {
@@ -26951,7 +26958,7 @@ function buildStableKey(engine, f) {
     case "a11y":
       return [f.ruleId ?? "", normaliseUrl(f.pageUrl ?? ""), (f.primarySelector ?? "").slice(0, 120)].join("|");
     case "performance":
-      return [f.ruleId ?? "", normaliseUrl(f.pageUrl ?? ""), f.subject ?? ""].join("|");
+      return [f.ruleId ?? "", pagePath(f.pageUrl ?? ""), f.subject ?? ""].join("|");
     default:
       return [f.checkId ?? f.ruleId ?? "", f.pageUrl ?? ""].join("|");
   }
