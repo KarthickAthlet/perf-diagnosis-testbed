@@ -10,3 +10,7 @@ Action against real pull requests.
 - `perf.config.json` and `perf.budgets.json` hold the pages to test and the budgets.
 - `thirdparty/widget.js` is a deliberately slow script, served from cdn.jsdelivr.net when a
   test PR wants a "third party".
+
+## Calibration (MergeDelta batch 1-5)
+
+The `calibration/aa` pull request changes only this README, so the served site is identical on both sides: every scan of it is an A/A pair (spec 0b-6 §7).
