@@ -17,6 +17,8 @@
     }
   },
   "blocking": {
-    "TBT": 3000
+    "TBT": {
+      "minIncrease": 3000
+    }
   }
 }
