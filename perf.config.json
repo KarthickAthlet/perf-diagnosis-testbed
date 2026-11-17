@@ -15,5 +15,8 @@
     "serve": {
       "staticDir": "site"
     }
+  },
+  "blocking": {
+    "TBT": 3000
   }
 }
