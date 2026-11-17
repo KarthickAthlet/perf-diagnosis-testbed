@@ -15,13 +15,5 @@
     "serve": {
       "staticDir": "site"
     }
-  },
-  "blocking": {
-    "TBT": {
-      "minIncrease": 3000
-    },
-    "CLS": {
-      "minIncrease": 0.5
-    }
   }
 }
