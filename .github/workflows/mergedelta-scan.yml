@@ -74,7 +74,7 @@ jobs:
 
       # The public MergeDelta scan action, pinned by full commit SHA (1b-1 D4).
       - name: MergeDelta scan
-        uses: mergedelta/action/scan@b8d2a22b70c9645c3d8d0900400689e06197f213 # v1.3.2
+        uses: mergedelta/action/scan@66965d89d0c6860f36a6a1ee3dd1f9c8f961147e # v1.4.0
         with:
           # No api-key, no api-url, no tokens: this job talks to nothing but the site under test.
           # base-url/pr-url are the production-paired FALLBACK (used when localBuild fails or is
